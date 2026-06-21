@@ -22,6 +22,7 @@ from corelec.core_logging import attach_qt_log_emitter
 from corelec.ReverseEngineering.ctypes_frames import FrameBase as CFrameBase, Frame65 as CFrame65, Frame69 as CFrame69, Frame77 as CFrame77, Frame83 as CFrame83
 from corelec.UI.reverse_ui import ReverseByteTable, GraphSelectionPanel
 from corelec.UI.signals import signals
+from corelec.net_protocol import FRAME_LABELS
 
 logger = logging.getLogger(__name__)
 
