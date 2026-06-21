@@ -192,7 +192,7 @@ import sys
 import threading
 import logging
 
-from PyQt6.QtWidgets import QApplication
+from UI.qt_compat import QApplication
 
 from Analyse.database import Database
 from Analyse.model import RegulatorState

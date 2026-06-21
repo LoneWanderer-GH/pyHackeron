@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import re
-from ctypes import BigEndianStructure, Structure, Union, c_int8, c_uint8, c_uint16
+from ctypes import BigEndianStructure, Structure, c_int8, c_uint8, c_uint16
 from typing import Any, ByteString, Dict, List, Tuple
 
 # ---------------------------------------------------------------------------
@@ -48,35 +48,6 @@ def _be_layout(be_cls: type) -> Tuple[Dict[int, str], List[int]]:
     _layout_cache[be_cls] = result
     return result
 
-
-# ---------------------------------------------------------------------------
-# Bitfield helpers
-# ---------------------------------------------------------------------------
-
-class _WarningBits(BigEndianStructure):
-    _pack_ = 1
-    _fields_ = [
-        ('alarm_rdx', c_uint8, 4),
-        ('warning',   c_uint8, 4),
-    ]
-
-
-class _WarningUnion(Union):
-    _fields_ = [('asByte', c_uint8), ('bits', _WarningBits)]
-
-
-class _FlagsBits(BigEndianStructure):
-    _pack_ = 1
-    _fields_ = [
-        ('b7', c_uint8, 1), ('b6', c_uint8, 1),
-        ('b5', c_uint8, 1), ('b4', c_uint8, 1),
-        ('b3', c_uint8, 1), ('b2', c_uint8, 1),
-        ('b1', c_uint8, 1), ('b0', c_uint8, 1),
-    ]
-
-
-class _FlagsUnion(Union):
-    _fields_ = [('asByte', c_uint8), ('bits', _FlagsBits)]
 
 
 # ---------------------------------------------------------------------------
@@ -137,10 +108,10 @@ class Frame77(FrameBase):
             ('redox',     c_uint16),       # bytes 4-5
             ('temp',      c_uint16),       # bytes 6-7  (÷10)
             ('sel',       c_uint16),       # bytes 8-9  (÷10)
-            ('alarme',    c_uint8),        # byte 10
-            ('warning_u', _WarningUnion),  # byte 11  (alarm_rdx[7:4] | warning[3:0])
-            ('flags12_u', _FlagsUnion),    # byte 12  (pompe_moins=b6, pompe_chl=b5)
-            ('b13',       c_uint8),        # byte 13  (pompes_forcees = bit7)
+            ('alarme',     c_uint8),  # byte 10
+            ('warning',    c_uint8),  # byte 11  alarm_rdx[7:4] | warning[3:0]
+            ('pump_flags', c_uint8),  # byte 12  pompe_moins=bit6, pompe_chl=bit5
+            ('b13',        c_uint8),  # byte 13  pompes_forcees = bit7
             ('b14',       c_uint8),        # byte 14  unknown
             ('crc',       c_uint8),        # byte 15
             ('end',       c_uint8),        # byte 16
@@ -159,10 +130,10 @@ class Frame77(FrameBase):
             'temp':               temp if 0   <= temp <= 50   else None,
             'sel':                sel  if 0   <= sel  <= 10   else None,
             'alarme':             be.alarme,
-            'warning':            int(be.warning_u.bits.warning),
-            'alarm_rdx':          int(be.warning_u.bits.alarm_rdx),
-            'pompe_moins_active': bool(be.flags12_u.bits.b6),
-            'pompe_chl_elx':      bool(be.flags12_u.bits.b5),
+            'warning':            be.warning & 0x0F,
+            'alarm_rdx':          be.warning >> 4,
+            'pompe_moins_active': bool(be.pump_flags & (1 << 6)),
+            'pompe_chl_elx':      bool(be.pump_flags & (1 << 5)),
             'pompes_forcees':     bool(be.b13 & (1 << 7)),
         })
         return d
@@ -244,9 +215,9 @@ class Frame65(FrameBase):
             ('b5',           c_uint8),   # byte 5  unknown
             ('cycle_period', c_uint8),   # byte 6  cycle_period_min
             ('b7',           c_uint8),   # byte 7  unknown
-            ('cycle_a',      c_uint8),   # byte 8  cycle_a_min
-            ('shutter_mode', c_uint8),   # byte 9  shutter_mode_electrolyse_percent
-            ('flags10_u',    _FlagsUnion),  # byte 10  flow_switch/volet_actif/volet_force
+            ('cycle_a',   c_uint8),  # byte 8  cycle_a_min
+            ('shutter_mode', c_uint8),  # byte 9  shutter_mode_electrolyse_percent
+            ('io_flags',  c_uint8),  # byte 10  flow_switch=bit2, volet_actif=bit4, volet_force=bit3
             ('b11',          c_uint8),   # byte 11 unknown
             ('b12',          c_uint8),   # byte 12 unknown
             ('b13',          c_uint8),   # byte 13 unknown
@@ -258,7 +229,6 @@ class Frame65(FrameBase):
     def as_dict(self) -> Dict[str, Any]:
         d = super().as_dict()
         be = self._BE.from_buffer_copy(self.raw_bytes())
-        flags = be.flags10_u.bits
         d.update({
             'type':                            65,
             'boost_active':                    be.boost_remain > 0,
@@ -266,9 +236,9 @@ class Frame65(FrameBase):
             'current_electrolyse_percent':     be.electrolyse,
             'cycle_period_min':                be.cycle_period,
             'shutter_mode_electrolyse_percent': be.shutter_mode,
-            'flow_switch':                     bool(flags.b2),
-            'volet_actif':                     bool(flags.b4),
-            'volet_force':                     bool(flags.b3),
+            'flow_switch':                     bool(be.io_flags & (1 << 2)),
+            'volet_actif':                     bool(be.io_flags & (1 << 4)),
+            'volet_force':                     bool(be.io_flags & (1 << 3)),
             'cycle_a_min':                     be.cycle_a,
             'cycle_b_min':                     be.cycle_b,
         })
