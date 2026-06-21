@@ -145,7 +145,7 @@ class Frame77(FrameBase):
             'pompe_moins_active': bool(be.pump_flags & (1 << 6)),
             'regulation_active':  bool(be.pump_flags & (1 << 5)),
             'config_capteur_sel_actif': bool(be.sensor_config_flags & (1 << 3)),
-            'pompes_forcees':     bool(be.sensor_flags & (1 << 7)),
+            'pompes_forcees':     bool(be.sensor_config_flags & (1 << 7)),
         })
         return d
 
