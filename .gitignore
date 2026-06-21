@@ -2,7 +2,7 @@
 **/__pycache__/**/*
 src/python/pool.db
 src/Ada/alire
-src/Ada/backends/vendor/*
+ada/backends/vendor/*
 
 .agent.md
 typings/
