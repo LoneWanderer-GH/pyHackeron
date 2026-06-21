@@ -1,12 +1,9 @@
 **/obj/
 **/__pycache__/**/*
-src/python/pool.db
-src/Ada/alire
+ada/alire
 ada/backends/vendor/*
 
 .agent.md
 typings/
-
-
 
 .idea/
