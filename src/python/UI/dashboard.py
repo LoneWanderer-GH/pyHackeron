@@ -31,9 +31,11 @@ class Dashboard(QWidget):
     def __init__(
             self,
             state: RegulatorState,
-            database: Database
+            database: Database,
+            network_client=None,   # NetworkClient optionnel (mode réseau)
     ):
         super().__init__()
+        self._network_client = network_client
         
         self.state = state
         self.database = database
@@ -88,8 +90,12 @@ class Dashboard(QWidget):
         
         self.retry_button = QPushButton("Reconnecter")
         self.cancel_button = QPushButton("Annuler")
+        self.sync_db_button = QPushButton("Sync DB")
+        self.sync_db_button.setToolTip("Télécharger la base de données depuis le daemon réseau")
+        self.sync_db_button.setVisible(False)  # affiché uniquement en mode réseau
         self.retry_button.clicked.connect(signals.retry_requested.emit)
         self.cancel_button.clicked.connect(signals.cancel_requested.emit)
+        self.sync_db_button.clicked.connect(self._on_sync_db)
         
         top = QHBoxLayout()
         
@@ -109,6 +115,7 @@ class Dashboard(QWidget):
         top.addLayout(metrics_layout)
         top.addWidget(self.retry_button)
         top.addWidget(self.cancel_button)
+        top.addWidget(self.sync_db_button)
         self.tabs = QTabWidget()
         
         dashboard_tab = QWidget()
@@ -446,6 +453,15 @@ class Dashboard(QWidget):
             self.connection_progress.setRange(0, 1)
             self.connection_progress.setValue(0)
             self.connection_progress.setFormat("Disconnected")
+
+    def set_network_client(self, client) -> None:
+        """Attache un NetworkClient et active le bouton Sync DB."""
+        self._network_client = client
+        self.sync_db_button.setVisible(True)
+
+    def _on_sync_db(self) -> None:
+        if self._network_client is not None:
+            self._network_client.request_db_sync("decoded_values")
 
     def _setup_crosshair(self, graph: pg.PlotWidget):
         vline = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=1))

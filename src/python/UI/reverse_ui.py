@@ -14,9 +14,9 @@ class ReverseByteTable(QTableWidget):
     interpretToggled = Signal(dict)  # {'type':int,'offsets':list,'interpretation':str,'checked':bool}
 
     def __init__(self, typ: int, parent=None):
-        super().__init__(17, 5, parent)
+        super().__init__(17, 6, parent)
         self.typ = typ
-        self.setHorizontalHeaderLabels(['Plot', 'Offset', 'Int', 'Hex', 'Known'])
+        self.setHorizontalHeaderLabels(['Plot', 'Offset', 'Int', 'Hex', 'Known', 'Name'])
         self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.horizontalHeader().setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -30,9 +30,10 @@ class ReverseByteTable(QTableWidget):
         self.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
 
     def populate(self, parsed: Dict[str, Any]):
-        # parsed contains raw_b0..raw_b16 and _known_offsets
+        # parsed contains raw_b0..raw_b16, _known_offsets, _offset_names
         raw = [parsed.get(f'raw_b{i}', 0) for i in range(17)]
         self.known_offsets = parsed.get('_known_offsets', []) or []
+        offset_names: Dict[int, str] = parsed.get('_offset_names', {}) or {}
 
         self._suppress_signal = True
         for i in range(17):
@@ -59,12 +60,16 @@ class ReverseByteTable(QTableWidget):
             it_known = QTableWidgetItem('yes' if known else 'no')
             it_known.setFlags(it_known.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.setItem(i, 4, it_known)
+            # name
+            it_name = QTableWidgetItem(offset_names.get(i, ''))
+            it_name.setFlags(it_name.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.setItem(i, 5, it_name)
             # color rows by known/unknown
             bg_color = QColor('#d7f0dc') if known else QColor('#f7dfcf')
             fg_color = QColor('#1a2a1a') if known else QColor('#3a1500')
             bg_brush = QBrush(bg_color)
             fg_brush = QBrush(fg_color)
-            for col in range(5):
+            for col in range(6):
                 cell = self.item(i, col)
                 if cell is not None:
                     cell.setBackground(bg_brush)

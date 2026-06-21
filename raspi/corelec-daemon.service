@@ -1,0 +1,28 @@
+[Unit]
+Description=Corelec BLE Daemon
+Documentation=https://github.com/yourrepo/corelec
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/corelec
+EnvironmentFile=/etc/corelec/config.env
+ExecStart=/opt/corelec/venv/bin/python /opt/corelec/ble_daemon.py
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Sécurité
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Journalisation
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=corelec-daemon
+
+[Install]
+WantedBy=multi-user.target
