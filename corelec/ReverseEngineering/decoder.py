@@ -26,6 +26,7 @@ class Decoder:
             alarme=d['alarme'], warning=d['warning'], alarm_rdx=d['alarm_rdx'],
             pompe_moins_active=d['pompe_moins_active'],
             regulation_active=d['regulation_active'],
+            config_capteur_sel_actif=d['config_capteur_sel_actif'],
             pompes_forcees=d['pompes_forcees'],
         )
 

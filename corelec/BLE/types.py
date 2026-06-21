@@ -36,6 +36,7 @@ class Decoded77(DecodedBase):
     alarm_rdx: int
     pompe_moins_active: bool
     regulation_active: bool
+    config_capteur_sel_actif: bool
     pompes_forcees: bool
 
 

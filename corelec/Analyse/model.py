@@ -31,6 +31,7 @@ class RegulatorState:
 
     pompe_moins_active: bool = False
     regulation_active: bool = False
+    config_capteur_sel_actif: bool = False
     pompes_forcees: bool = False
 
     boost_remaining_time_min: int = 0
@@ -68,6 +69,7 @@ class RegulatorState:
             self.warning = decoded.warning
             self.pompe_moins_active = decoded.pompe_moins_active
             self.regulation_active = decoded.regulation_active
+            self.config_capteur_sel_actif = decoded.config_capteur_sel_actif
             self.pompes_forcees = decoded.pompes_forcees
 
         elif t == 83 and isinstance(decoded, Decoded83):

@@ -116,9 +116,13 @@ class Frame77(FrameBase):
             #                     quand l’arrivée d’eau est coupée (électrolyseur arrêté / régulation inhibée)
             #                     Peut représenter l’autorisation générale de régulation (pH + électrolyse)
             #   bit 6   (0x40)  : pompe_moins_active (pompe pH-)
-            ('pump_flags', c_uint8),  # byte 12
-            ('b13',        c_uint8),  # byte 13  pompes_forcees = bit7
-            ('b14',       c_uint8),        # byte 14  unknown
+            ('pump_flags',    c_uint8),  # byte 12
+            # byte 13  sensor_flags :
+            #   bit 3 (0x08) : config_capteur_sel_actif — présent (1) quand le capteur SEL est activé,
+            #                  absent (0) quand désactivé (observé : 0x19→0x11 à la désactivation)
+            #   bit 7 (0x80) : pompes_forcees
+            ('sensor_config_flags', c_uint8),  # byte 13
+            ('b14',          c_uint8),  # byte 14  unknown
             ('crc',       c_uint8),        # byte 15
             ('end',       c_uint8),        # byte 16
         ]
@@ -140,7 +144,8 @@ class Frame77(FrameBase):
             'alarm_rdx':          be.warning >> 4,
             'pompe_moins_active': bool(be.pump_flags & (1 << 6)),
             'regulation_active':  bool(be.pump_flags & (1 << 5)),
-            'pompes_forcees':     bool(be.b13 & (1 << 7)),
+            'config_capteur_sel_actif': bool(be.sensor_config_flags & (1 << 3)),
+            'pompes_forcees':     bool(be.sensor_flags & (1 << 7)),
         })
         return d
 
