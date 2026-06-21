@@ -70,7 +70,7 @@ typedef struct {
     uint8_t warning;
     uint8_t alarm_rdx;
     uint8_t pompe_moins_active;
-    uint8_t pompe_chl_elx;
+    uint8_t regulation_active;
     uint8_t pompes_forcees;
     uint8_t boost_active;
     uint8_t flow_switch;

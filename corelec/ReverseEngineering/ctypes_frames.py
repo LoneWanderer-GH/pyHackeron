@@ -112,8 +112,9 @@ class Frame77(FrameBase):
             ('warning',    c_uint8),  # byte 11  alarm_rdx[7:4] | warning[3:0]
             # byte 12  pump_flags :
             #   bits 0+1 (0x03) : toujours à 1 dans les données observées (usage inconnu)
-            #   bit 5   (0x20)  : pompe_chl_elx — passe à 0 simultanément avec flow_switch (trame 65)
-            #                     quand l'arrivée d'eau est coupée (électrolyseur arrêté)
+            #   bit 5   (0x20)  : regulation_active — passe à 0 simultanément avec flow_switch (trame 65)
+            #                     quand l’arrivée d’eau est coupée (électrolyseur arrêté / régulation inhibée)
+            #                     Peut représenter l’autorisation générale de régulation (pH + électrolyse)
             #   bit 6   (0x40)  : pompe_moins_active (pompe pH-)
             ('pump_flags', c_uint8),  # byte 12
             ('b13',        c_uint8),  # byte 13  pompes_forcees = bit7
@@ -138,7 +139,7 @@ class Frame77(FrameBase):
             'warning':            be.warning & 0x0F,
             'alarm_rdx':          be.warning >> 4,
             'pompe_moins_active': bool(be.pump_flags & (1 << 6)),
-            'pompe_chl_elx':      bool(be.pump_flags & (1 << 5)),
+            'regulation_active':   bool(be.pump_flags & (1 << 5)),
             'pompes_forcees':     bool(be.b13 & (1 << 7)),
         })
         return d

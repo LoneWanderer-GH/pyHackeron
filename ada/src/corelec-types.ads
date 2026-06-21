@@ -63,7 +63,7 @@ package Corelec.Types is
       Warning                            : U8 := 0;
       Alarm_Rdx                          : U8 := 0;
       Pompe_Moins_Active                 : U8 := 0;
-      Pompe_Chl_Elx                      : U8 := 0;
+      Regulation_Active                   : U8 := 0;
       Pompes_Forcees                     : U8 := 0;
       Boost_Active                       : U8 := 0;
       Flow_Switch                        : U8 := 0;

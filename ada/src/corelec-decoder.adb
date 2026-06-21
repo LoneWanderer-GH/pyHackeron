@@ -64,7 +64,7 @@ package body Corelec.Decoder is
       end;
 
       Out_D.Pompe_Moins_Active := (if (Frame.Raw (12) and 16#40#) /= 0 then 1 else 0);
-      Out_D.Pompe_Chl_Elx := (if (Frame.Raw (12) and 16#20#) /= 0 then 1 else 0);
+      Out_D.Regulation_Active := (if (Frame.Raw (12) and 16#20#) /= 0 then 1 else 0);
       Out_D.Pompes_Forcees := (if (Frame.Raw (13) and 16#80#) /= 0 then 1 else 0);
    end Decode_77;
 

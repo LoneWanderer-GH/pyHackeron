@@ -67,7 +67,7 @@ class RegulatorState:
             self.alarme = decoded.alarme
             self.warning = decoded.warning
             self.pompe_moins_active = decoded.pompe_moins_active
-            self.pompe_chl_elx = decoded.pompe_chl_elx
+            self.pompe_chl_elx = decoded.regulation_active
             self.pompes_forcees = decoded.pompes_forcees
 
         elif t == 83 and isinstance(decoded, Decoded83):

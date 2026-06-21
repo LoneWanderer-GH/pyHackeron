@@ -35,7 +35,7 @@ class Decoded77(DecodedBase):
     warning: int
     alarm_rdx: int
     pompe_moins_active: bool
-    pompe_chl_elx: bool
+    regulation_active: bool
     pompes_forcees: bool
 
 

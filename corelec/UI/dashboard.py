@@ -126,7 +126,7 @@ class Dashboard(QWidget):
         self.alarme_value = QLabel("-")
         self.warning_value = QLabel("-")
         self.pompe_moins_value = QLabel("-")
-        self.pompe_chl_elx_value = QLabel("-")
+        self.regulation_active_value = QLabel("-")
         self.pompes_forcees_value = QLabel("-")
         self.cycle_period_value = QLabel("-")
         self.shutter_mode_value = QLabel("-")
@@ -176,8 +176,8 @@ class Dashboard(QWidget):
 
         dashboard_info_layout.addWidget(QLabel("Pompe pH-:"), 6, 0)
         dashboard_info_layout.addWidget(self.pompe_moins_value, 6, 1)
-        dashboard_info_layout.addWidget(QLabel("Pompe chl/elx:"), 6, 2)
-        dashboard_info_layout.addWidget(self.pompe_chl_elx_value, 6, 3)
+        dashboard_info_layout.addWidget(QLabel("Régulation active:"), 6, 2)
+        dashboard_info_layout.addWidget(self.regulation_active_value, 6, 3)
 
         dashboard_info_layout.addWidget(QLabel("Pompes forcées:"), 7, 0)
         dashboard_info_layout.addWidget(self.pompes_forcees_value, 7, 1)
@@ -735,7 +735,11 @@ class Dashboard(QWidget):
         self.alarme_value.setText(format_value(s.alarme))
         self.warning_value.setText(format_value(s.warning))
         self.pompe_moins_value.setText("ON" if bool(s.pompe_moins_active) else "OFF")
-        self.pompe_chl_elx_value.setText("ON" if bool(s.pompe_chl_elx) else "OFF")
+        self.regulation_active_value.setText("OUI" if bool(s.regulation_active) else "NON")
+        if not s.regulation_active:
+            self.regulation_active_value.setStyleSheet("color:orange;font-weight:bold;")
+        else:
+            self.regulation_active_value.setStyleSheet("")
         self.pompes_forcees_value.setText("ON" if bool(s.pompes_forcees) else "OFF")
         self.cycle_period_value.setText(format_value(s.configured_cycle_period_min))
         self.shutter_mode_value.setText(format_value(s.shutter_mode_electrolyse_percent) + " %")
