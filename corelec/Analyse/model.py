@@ -30,7 +30,7 @@ class RegulatorState:
     warning: int = 0
 
     pompe_moins_active: bool = False
-    pompe_chl_elx: bool = False
+    regulation_active: bool = False
     pompes_forcees: bool = False
 
     boost_remaining_time_min: int = 0
@@ -67,7 +67,7 @@ class RegulatorState:
             self.alarme = decoded.alarme
             self.warning = decoded.warning
             self.pompe_moins_active = decoded.pompe_moins_active
-            self.pompe_chl_elx = decoded.regulation_active
+            self.regulation_active = decoded.regulation_active
             self.pompes_forcees = decoded.pompes_forcees
 
         elif t == 83 and isinstance(decoded, Decoded83):
