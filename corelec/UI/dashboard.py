@@ -408,7 +408,41 @@ class Dashboard(QWidget):
         signals.log.connect(self.append_log)
         signals.reverse.connect(self.update_reverse)
         attach_qt_log_emitter(signals.log.emit)
+        self._load_reverse_history()
     
+    def _load_reverse_history(self) -> None:
+        """Pré-remplit reverse_time_history et les tables RE depuis raw_frames en DB."""
+        try:
+            rows = self.database.load_raw_frames_history(limit=8000)
+        except Exception:
+            return
+        _parsers = {77: CFrame77, 83: CFrame83, 65: CFrame65, 69: CFrame69}
+        last_raw: dict[int, bytearray] = {}
+        for ts_iso, frame_type, frame_hex in rows:
+            try:
+                raw = bytearray.fromhex(frame_hex)
+                ts = datetime.fromisoformat(ts_iso).timestamp()
+            except Exception:
+                continue
+            for i, b in enumerate(raw[:17]):
+                key = (frame_type, i)
+                if key in self.reverse_time_history:
+                    self.reverse_time_history[key].append((ts, int(b)))
+            last_raw[frame_type] = raw
+        # Pré-remplir chaque table RE avec la dernière trame connue du type
+        for frame_type, raw in last_raw.items():
+            table = self.reverse_tables.get(frame_type)
+            if table is None:
+                continue
+            parser = _parsers.get(frame_type, CFrameBase)
+            try:
+                parsed = parser.from_bytes(raw).as_dict()
+            except Exception:
+                parsed = CFrameBase.from_bytes(raw).as_dict()
+            if 'raw_b0' not in parsed:
+                parsed = {**CFrameBase.from_bytes(raw).as_dict(), **parsed}
+            table.populate(parsed)
+
     def append_log(self, msg: str):
         text = msg.strip()
         if text.startswith("<"):

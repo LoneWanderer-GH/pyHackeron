@@ -100,6 +100,7 @@ class NetworkClient(threading.Thread):
 
     def run(self) -> None:
         sock = self._ctx_sub.socket(zmq.SUB)
+        sock.setsockopt(zmq.LINGER, 0)  # fermeture immédiate sans attente
         sock.connect(f"tcp://{self.host}:{self.pub_port}")
         # S'abonner à tous les topics corelec/*
         sock.setsockopt_string(zmq.SUBSCRIBE, "corelec/")
@@ -123,11 +124,27 @@ class NetworkClient(threading.Thread):
                 logger.warning("ZMQ recv error: %s", e)
 
         sock.close()
-        self._ctx_sub.term()
+        try:
+            self._ctx_sub.term()
+        except Exception:
+            pass
         logger.info("NetworkClient stopped.")
 
     def stop(self) -> None:
+        """Arrêt propre : signale le thread, ferme le socket CMD."""
         self._running = False
+        # Fermer le socket de commande (créé côté thread principal)
+        if self._sock_cmd is not None:
+            try:
+                self._sock_cmd.setsockopt(zmq.LINGER, 0)
+                self._sock_cmd.close()
+            except Exception:
+                pass
+            self._sock_cmd = None
+        try:
+            self._ctx_cmd.term()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Dispatch des messages reçus → signaux Qt

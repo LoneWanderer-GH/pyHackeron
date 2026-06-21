@@ -147,6 +147,7 @@ def main() -> None:
         )
         client.start()
         dashboard.set_network_client(client)
+        app.aboutToQuit.connect(client.stop)  # fermeture propre des sockets ZMQ
 
         # Relier les boutons Retry / Cancel du dashboard aux commandes réseau
         signals.retry_requested.connect(client.request_retry)

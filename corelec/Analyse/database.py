@@ -142,3 +142,12 @@ class Database:
         )
 
         return list(reversed(cur.fetchall()))
+
+    def load_raw_frames_history(self, limit: int = 2000) -> list:
+        """Return (ts, frame_type, frame_hex) rows sorted by time ASC, last `limit` rows."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT ts, frame_type, frame_hex FROM raw_frames ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        return list(reversed(cur.fetchall()))
