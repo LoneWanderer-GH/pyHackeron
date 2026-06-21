@@ -37,7 +37,7 @@ import zmq.asyncio
 # ---------------------------------------------------------------------------
 # Chemin racine pour les imports corelec.*
 # ---------------------------------------------------------------------------
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parent  # répertoire contenant ble_daemon.py
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -204,10 +204,14 @@ class BLEDaemon:
         self.state = RegulatorState()
         self.pub = ZmqPublisher(pub_port)
 
-        # Remplacer signals Qt par notre shim headless
+        # Remplacer signals Qt par notre shim headless.
+        # Il faut patcher TOUS les modules qui ont fait `from corelec.UI.signals import signals`
+        # car ils conservent une référence locale à l'ancien objet Qt.
         import corelec.UI.signals as _signals_mod
+        import corelec.BLE.Acquisition as _acq_mod
         self._signals = _HeadlessSignals()
-        _signals_mod.signals = self._signals
+        _signals_mod.signals = self._signals   # module signals.py
+        _acq_mod.signals    = self._signals   # référence locale dans Acquisition.py
 
         # Connecter les callbacks
         self._signals.connection.connect(self._on_connection)
