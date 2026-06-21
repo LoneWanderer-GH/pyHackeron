@@ -25,7 +25,7 @@ class Decoder:
             ph=d['ph'], redox=d['redox'], temp=d['temp'], sel=d['sel'],
             alarme=d['alarme'], warning=d['warning'], alarm_rdx=d['alarm_rdx'],
             pompe_moins_active=d['pompe_moins_active'],
-            regulation_active=d['pompe_chl_elx'],
+            regulation_active=d['regulation_active'],
             pompes_forcees=d['pompes_forcees'],
         )
 

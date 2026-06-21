@@ -139,7 +139,7 @@ class Frame77(FrameBase):
             'warning':            be.warning & 0x0F,
             'alarm_rdx':          be.warning >> 4,
             'pompe_moins_active': bool(be.pump_flags & (1 << 6)),
-            'regulation_active':   bool(be.pump_flags & (1 << 5)),
+            'regulation_active':  bool(be.pump_flags & (1 << 5)),
             'pompes_forcees':     bool(be.b13 & (1 << 7)),
         })
         return d

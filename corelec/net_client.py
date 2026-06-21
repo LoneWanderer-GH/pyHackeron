@@ -234,6 +234,9 @@ class NetworkClient(threading.Thread):
         signals.connection.emit(info)
 
     def _handle_state(self, p: dict, signals) -> None:
+        # Compat ascendante : ancien daemon publie 'pompe_chl_elx', nouveau code utilise 'regulation_active'
+        if 'pompe_chl_elx' in p and 'regulation_active' not in p:
+            p = {**p, 'regulation_active': p['pompe_chl_elx']}
         # Mettre à jour l'état courant directement
         for key, value in p.items():
             if hasattr(self.state, key):
