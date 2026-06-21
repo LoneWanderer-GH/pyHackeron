@@ -172,7 +172,7 @@ class StatusBoard:
         def _loop() -> None:
             while not self._stop_evt.is_set():
                 try:
-                    live.update(self.build())
+                    live.update(self.build(), refresh=True)
                 except Exception:
                     pass
                 self._stop_evt.wait(interval)
@@ -350,9 +350,9 @@ class BLEDaemon:
             uptime_s=m.connection_uptime_s,
         )
         self.pub.publish(Topic.CONNECTION, payload)
-        logger.info("[BLE] %s — %s", info.state, info.message)
         if self.board:
             self.board.update_connection(info)
+        logger.info("[BLE] %s — %s", info.state, info.message)
 
     def _on_state_updated(self) -> None:
         try:

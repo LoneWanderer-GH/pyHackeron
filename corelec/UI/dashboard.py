@@ -78,41 +78,28 @@ class Dashboard(QWidget):
         self.connection_label = QLabel("Déconnecté")
         self.retry_label = QLabel("Retries: 0")
         
-        # Metrics labels
-        self.rssi_label = QLabel("RSSI: - dBm")
-        self.packets_sent_label = QLabel("Sent: 0")
-        self.packets_recv_label = QLabel("Recv: 0")
-        self.frames_label = QLabel("Frames: 0")
-        self.uptime_label = QLabel("Uptime: 0s")
-        
         self.connection_progress = QProgressBar()
         self.connection_progress.setMaximum(100)
-        
+
         self.retry_button = QPushButton("Reconnecter")
         self.cancel_button = QPushButton("Annuler")
         self.sync_db_button = QPushButton("Sync DB")
         self.sync_db_button.setToolTip("Télécharger la base de données depuis le daemon réseau")
         self.sync_db_button.setVisible(False)  # affiché uniquement en mode réseau
-        self.retry_button.clicked.connect(signals.retry_requested.emit)
-        self.cancel_button.clicked.connect(signals.cancel_requested.emit)
+        self.retry_button.clicked.connect(lambda _: signals.retry_requested.emit())
+        self.cancel_button.clicked.connect(lambda _: signals.cancel_requested.emit())
         self.sync_db_button.clicked.connect(self._on_sync_db)
-        
+
+        # Indicateur ZMQ (mode réseau uniquement)
+        self.zmq_status_label = QLabel("")
+        self.zmq_status_label.setVisible(False)
+        self._network_client = None
+
         top = QHBoxLayout()
-        
         top.addWidget(self.connection_label)
         top.addWidget(self.retry_label)
         top.addWidget(self.connection_progress)
-        
-        # Add metrics in a separate group
-        metrics_layout = QHBoxLayout()
-        metrics_layout.addWidget(QLabel("| Metrics:"))
-        metrics_layout.addWidget(self.rssi_label)
-        metrics_layout.addWidget(self.packets_sent_label)
-        metrics_layout.addWidget(self.packets_recv_label)
-        metrics_layout.addWidget(self.frames_label)
-        metrics_layout.addWidget(self.uptime_label)
-        
-        top.addLayout(metrics_layout)
+        top.addWidget(self.zmq_status_label)
         top.addWidget(self.retry_button)
         top.addWidget(self.cancel_button)
         top.addWidget(self.sync_db_button)
@@ -451,19 +438,9 @@ class Dashboard(QWidget):
             self.log_view.append(f"<span style='font-family:Consolas,\"Courier New\",monospace;color:#d7e3f4;'>{escape(text)}</span>")
     
     def update_connection(self, info: ConnectionInfo):
-        # info: ConnectionInfo = info
         self.connection_label.setText(info.message)
         self.retry_label.setText(f"Retries: {info.retry_count}")
         self.retry_button.setEnabled(info.state != "connecting")
-        
-        # Update metrics
-        metrics = info.metrics
-        self.rssi_label.setText(f"RSSI: {metrics.rssi} dBm" if metrics.rssi != 0 else "RSSI: - dBm")
-        self.packets_sent_label.setText(f"Sent: {metrics.packets_sent}")
-        self.packets_recv_label.setText(f"Recv: {metrics.packets_received}")
-        self.frames_label.setText(f"Frames: {metrics.frames_parsed}")
-        uptime = int(metrics.connection_uptime_s)
-        self.uptime_label.setText(f"Uptime: {uptime}s")
         
         if info.state == "connected":
             self.connection_label.setStyleSheet("color:green;font-weight:bold;")
@@ -489,9 +466,32 @@ class Dashboard(QWidget):
             self.connection_progress.setFormat("Disconnected")
 
     def set_network_client(self, client) -> None:
-        """Attache un NetworkClient et active le bouton Sync DB."""
+        """Attache un NetworkClient, active Sync DB et l’indicateur ZMQ."""
         self._network_client = client
         self.sync_db_button.setVisible(True)
+        self.zmq_status_label.setVisible(True)
+        self._zmq_refresh_timer = QTimer(self)
+        self._zmq_refresh_timer.setInterval(2000)
+        self._zmq_refresh_timer.timeout.connect(self._refresh_zmq_status)
+        self._zmq_refresh_timer.start()
+
+    def _refresh_zmq_status(self) -> None:
+        """Met à jour l’indicateur de connexion ZMQ dans la barre du haut."""
+        import time as _time
+        client = self._network_client
+        if client is None:
+            return
+        age = _time.monotonic() - client.last_msg_time if client.last_msg_time > 0 else float('inf')
+        total = client.frames_received
+        if age < 5:
+            color, dot = "#2ecc71", "●"
+        elif age < 30:
+            color, dot = "#e67e22", "●"
+        else:
+            color, dot = "#e74c3c", "●"
+        self.zmq_status_label.setStyleSheet(f"color:{color}; font-weight:bold;")
+        age_str = f"{int(age)}s" if age < float('inf') else "?"
+        self.zmq_status_label.setText(f"{dot} ZMQ  msgs:{total}  ({age_str} ago)")
 
     def _on_sync_db(self) -> None:
         if self._network_client is not None:

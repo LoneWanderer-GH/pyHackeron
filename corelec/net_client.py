@@ -17,6 +17,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -64,6 +65,11 @@ class NetworkClient(threading.Thread):
         self.pub_port = pub_port
         self.cmd_port = cmd_port
         self._running = False
+        self._gen = 0  # numéro de génération pour invalider les anciens threads
+
+        # Compteurs pour l’indicateur ZMQ
+        self.frames_received: int = 0
+        self.last_msg_time: float = 0.0
 
         # ZMQ contexts (séparés pour SUB et PUSH)
         self._ctx_sub = zmq.Context()
@@ -99,24 +105,29 @@ class NetworkClient(threading.Thread):
     # ------------------------------------------------------------------
 
     def run(self) -> None:
+        self._running = True
+        self._zmq_loop(self._gen)
+
+    def _zmq_loop(self, gen: int) -> None:
+        """Boucle ZMQ SUB. S'arrête si _running devient False ou si la génération change."""
         sock = self._ctx_sub.socket(zmq.SUB)
-        sock.setsockopt(zmq.LINGER, 0)  # fermeture immédiate sans attente
+        sock.setsockopt(zmq.LINGER, 0)
         sock.connect(f"tcp://{self.host}:{self.pub_port}")
-        # S'abonner à tous les topics corelec/*
         sock.setsockopt_string(zmq.SUBSCRIBE, "corelec/")
         sock.setsockopt(zmq.RCVTIMEO, 1000)  # 1 s timeout pour permettre l'arrêt
         logger.info("ZMQ SUB connected to tcp://%s:%s", self.host, self.pub_port)
-        self._running = True
 
         # Import ici pour éviter la dépendance Qt dans le module
         from corelec.UI.signals import signals
 
-        while self._running:
+        while self._running and self._gen == gen:
             try:
                 parts = sock.recv_multipart()
                 if len(parts) < 2:
                     continue
                 topic, payload = decode(parts[0], parts[1])
+                self.frames_received += 1
+                self.last_msg_time = time.monotonic()
                 self._dispatch(topic, payload, signals)
             except zmq.Again:
                 pass  # timeout — boucle normale
@@ -128,11 +139,12 @@ class NetworkClient(threading.Thread):
             self._ctx_sub.term()
         except Exception:
             pass
-        logger.info("NetworkClient stopped.")
+        logger.info("NetworkClient ZMQ loop stopped (gen=%d).", gen)
 
     def stop(self) -> None:
         """Arrêt propre : signale le thread, ferme le socket CMD."""
         self._running = False
+        self._gen += 1
         # Fermer le socket de commande (créé côté thread principal)
         if self._sock_cmd is not None:
             try:
@@ -145,6 +157,41 @@ class NetworkClient(threading.Thread):
             self._ctx_cmd.term()
         except Exception:
             pass
+
+    def reconnect(self) -> None:
+        """Re-établit la connexion ZMQ et demande au daemon de retenter BLE."""
+        # Arrêter le thread courant en incrémentant la génération
+        self._running = False
+        self._gen += 1
+        # Fermer l’ancien socket CMD
+        if self._sock_cmd is not None:
+            try:
+                self._sock_cmd.setsockopt(zmq.LINGER, 0)
+                self._sock_cmd.close()
+            except Exception:
+                pass
+            self._sock_cmd = None
+        try:
+            self._ctx_cmd.term()
+        except Exception:
+            pass
+        # Recréer les contextes ZMQ
+        self._ctx_sub = zmq.Context()
+        self._ctx_cmd = zmq.Context()
+        # Envoyer CMD_RETRY au daemon (best-effort)
+        try:
+            self.send_cmd(Topic.CMD_RETRY)
+            logger.info("CMD_RETRY envoyé au daemon %s.", self.host)
+        except Exception as e:
+            logger.debug("CMD_RETRY échoué (daemon inaccessible?) : %s", e)
+        # Relancer la boucle ZMQ dans un nouveau thread
+        self._running = True
+        t = threading.Thread(
+            target=self._zmq_loop, args=(self._gen,),
+            daemon=True, name="zmq-sub",
+        )
+        t.start()
+        logger.info("ZMQ SUB reconnecté (gen=%d).", self._gen)
 
     # ------------------------------------------------------------------
     # Dispatch des messages reçus → signaux Qt
