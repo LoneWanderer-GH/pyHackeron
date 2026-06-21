@@ -1,0 +1,8 @@
+bleak
+
+# Qt binding — PyQt5 requis sur Raspberry Pi 3 / Python 3.9
+PyQt5>=5.15
+
+pyqtgraph
+coloredlogs
+

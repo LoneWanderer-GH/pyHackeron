@@ -1,0 +1,7 @@
+bleak
+
+# PyQt6>=6.4  # desktop uniquement
+pyqt6
+
+pyqtgraph
+coloredlogs

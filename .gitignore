@@ -1,0 +1,10 @@
+**/obj/
+**/__pycache__/**/*
+src/python/pool.db
+src/Ada/alire
+src/Ada/backends/vendor/*
+
+.agent.md
+typings/
+
+

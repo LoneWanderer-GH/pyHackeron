@@ -1,0 +1,30 @@
+-- Backend BLE BlueZ (Linux)
+-- Implémentation via D-Bus / BlueZ 5.x
+-- Dépendances système : libdbus-1-dev, libglib2.0-dev
+-- Référencer ce projet depuis corelec_ada.gpr sur cible Linux.
+
+library project Corelec_BLE_BlueZ is
+   for Languages use ("C");
+   for Source_Dirs use ("src");
+   for Object_Dir use "obj";
+   for Library_Dir use "lib";
+   for Library_Name use "corelec_ble_bluez";
+   for Library_Kind use "static";
+
+   Include_Root := Corelec_BLE_BlueZ'Project_Dir & "../../include";
+
+   package Compiler is
+      for Default_Switches ("C") use (
+         "-I" & Include_Root,
+         "-O2",
+         "-Wall",
+         "-Wextra",
+         "-std=c11"
+      );
+   end Compiler;
+
+   package Linker is
+      --  Bibliothèques système BlueZ / D-Bus
+      for Linker_Options use ("-ldbus-1", "-lglib-2.0");
+   end Linker;
+end Corelec_BLE_BlueZ;
