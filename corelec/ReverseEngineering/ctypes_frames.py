@@ -112,15 +112,21 @@ class Frame77(FrameBase):
             ('warning',    c_uint8),  # byte 11  alarm_rdx[7:4] | warning[3:0]
             # byte 12  pump_flags :
             #   bits 0+1 (0x03) : toujours à 1 dans les données observées (usage inconnu)
-            #   bit 5   (0x20)  : regulation_active — passe à 0 simultanément avec flow_switch (trame 65)
-            #                     quand l’arrivée d’eau est coupée (électrolyseur arrêté / régulation inhibée)
-            #                     Peut représenter l’autorisation générale de régulation (pH + électrolyse)
-            #   bit 6   (0x40)  : pompe_moins_active (pompe pH-)
+            #   bit 5   (0x20)  : regulation_active — passe à 0 dans deux cas :
+            #                       1) simultanément avec flow_switch (trame 65) quand l'arrivée d'eau
+            #                          est coupée (électrolyseur arrêté / régulation inhibée)
+            #                       2) quand pompes_forcees=True (mode forcé manuel, byte13 bit7)
+            #                     Représente l'autorisation générale de régulation (pH + électrolyse)
+            #   bit 6   (0x40)  : pompe_moins_active — pompe pH- en cours en mode AUTO uniquement ;
+            #                     = 0 lorsque pompes_forcees=True (mode forcé bypass la régulation auto)
             ('pump_flags',    c_uint8),  # byte 12
-            # byte 13  sensor_flags :
+            # byte 13  sensor_config_flags :
             #   bit 3 (0x08) : config_capteur_sel_actif — présent (1) quand le capteur SEL est activé,
             #                  absent (0) quand désactivé (observé : 0x19→0x11 à la désactivation)
-            #   bit 7 (0x80) : pompes_forcees
+            #   bit 7 (0x80) : pompes_forcees — CONFIRMÉ : 17 (0x11)→145 (0x91) lors du forçage
+            #                  manuel de la pompe pH- pendant 1 min, retour à 17 après ~1,5 min.
+            #                  Pendant ce temps : pump_flags (byte 12) = 0x03 (regulation_active=0,
+            #                  pompe_moins_active=0) — le mode forcé suspend la régulation auto.
             ('sensor_config_flags', c_uint8),  # byte 13
             ('b14',          c_uint8),  # byte 14  unknown
             ('crc',       c_uint8),        # byte 15
