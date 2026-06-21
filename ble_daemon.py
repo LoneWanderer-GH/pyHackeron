@@ -45,6 +45,7 @@ from corelec.Analyse.database import Database
 from corelec.Analyse.model import RegulatorState
 from corelec.BLE.Acquisition import Acquisition
 from corelec.BLE.types import ConnectionInfo, DecodedBase
+from corelec.core.bus import bus
 from corelec.net_protocol import (
     ConnStatus, Topic,
     encode, make_connection, make_value, make_state, make_frame_raw,
@@ -154,42 +155,6 @@ def dump_db_to_zmq(db: Database, pub: ZmqPublisher, table: str = "decoded_values
         logger.error("DB sync error: %s", e)
 
 
-# ---------------------------------------------------------------------------
-# Pont entre signaux Qt (Acquisition utilise signals.*) et ZMQ
-# ---------------------------------------------------------------------------
-# Acquisition.py émet des signaux Qt — pour le mode headless on les remplace
-# par des callbacks directs en monkey-patchant l'objet signals.
-
-class _HeadlessSignals:
-    """Remplace l'objet signals Qt par des callbacks purs."""
-
-    def __init__(self):
-        self._on_connection = []
-        self._on_state_updated = []
-        self._on_reverse = []
-        self._on_log = []
-
-    # API compatible avec les appels .emit() et .connect() du code existant
-    class _Signal:
-        def __init__(self):
-            self._cbs = []
-        def connect(self, cb):
-            self._cbs.append(cb)
-        def emit(self, *args):
-            for cb in self._cbs:
-                try:
-                    cb(*args)
-                except Exception as e:
-                    logging.getLogger(__name__).warning("Signal callback error: %s", e)
-
-    def __init__(self):
-        self.connection      = self._Signal()
-        self.state_updated   = self._Signal()
-        self.reverse         = self._Signal()
-        self.log             = self._Signal()
-        self.error           = self._Signal()
-        self.retry_requested = self._Signal()
-        self.cancel_requested= self._Signal()
 
 
 # ---------------------------------------------------------------------------
@@ -204,20 +169,11 @@ class BLEDaemon:
         self.state = RegulatorState()
         self.pub = ZmqPublisher(pub_port)
 
-        # Remplacer signals Qt par notre shim headless.
-        # Il faut patcher TOUS les modules qui ont fait `from corelec.UI.signals import signals`
-        # car ils conservent une référence locale à l'ancien objet Qt.
-        import corelec.UI.signals as _signals_mod
-        import corelec.BLE.Acquisition as _acq_mod
-        self._signals = _HeadlessSignals()
-        _signals_mod.signals = self._signals   # module signals.py
-        _acq_mod.signals    = self._signals   # référence locale dans Acquisition.py
-
-        # Connecter les callbacks
-        self._signals.connection.connect(self._on_connection)
-        self._signals.state_updated.connect(self._on_state_updated)
-        self._signals.reverse.connect(self._on_reverse)
-        self._signals.log.connect(self._on_log)
+        # Connecter le bus d’événements aux callbacks ZMQ
+        bus.connection.connect(self._on_connection)
+        bus.state_updated.connect(self._on_state_updated)
+        bus.reverse.connect(self._on_reverse)
+        bus.log.connect(self._on_log)
 
         self.acq = Acquisition(
             address=address,
@@ -228,8 +184,8 @@ class BLEDaemon:
 
         self.cmd_listener = ZmqCommandListener(
             port=cmd_port,
-            on_retry=lambda: self._signals.retry_requested.emit(),
-            on_cancel=lambda: self._signals.cancel_requested.emit(),
+            on_retry=lambda: bus.retry_requested.emit(),
+            on_cancel=lambda: bus.cancel_requested.emit(),
             on_db_sync=lambda p: self._handle_db_sync(p),
         )
 
@@ -337,7 +293,7 @@ class BLEDaemon:
     def stop(self) -> None:
         self._stop = True
         self.cmd_listener.stop()
-        self._signals.cancel_requested.emit()
+        bus.cancel_requested.emit()
 
 
 # ---------------------------------------------------------------------------

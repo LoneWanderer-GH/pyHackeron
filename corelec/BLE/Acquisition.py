@@ -14,7 +14,7 @@ from corelec.BLE.frame import Frame
 from corelec.BLE.stream import StreamParser
 from corelec.BLE.types import ConnectionInfo, ConnectionMetrics
 from corelec.ReverseEngineering.decoder import Decoder
-from corelec.UI.signals import signals
+from corelec.core.bus import bus as signals  # bus pur Python, sans dépendance Qt
 
 logger = logging.getLogger(__name__)
 
