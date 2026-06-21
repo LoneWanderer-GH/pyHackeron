@@ -2,7 +2,15 @@
 """
 ble_daemon.py — Démon headless Corelec BLE
 ===========================================
-Connexion BLE → décodage → SQLite + publication ZeroMQ PUB.
+Rôle : passe-plat BLE → ZMQ.
+
+Le daemon se limite à :
+  - recevoir les trames BLE brutes
+  - les stocker dans raw_frames (SQLite)
+  - les republier telles quelles sur Topic.FRAME_RAW
+
+Tout décodage (RegulatorState, graphiques…) est fait côté client (UI / net_client).
+Cela permet de faire évoluer le décodage sans redémarrer le daemon.
 
 Usage :
     python ble_daemon.py [--address B4:E3:F9:5A:0A:13] [--pub-port 5555] [--cmd-port 5556]
@@ -27,7 +35,6 @@ import signal
 import sys
 import threading
 import time
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -48,7 +55,7 @@ from corelec.BLE.types import ConnectionInfo, DecodedBase
 from corelec.core.bus import bus
 from corelec.net_protocol import (
     ConnStatus, Topic,
-    encode, make_connection, make_value, make_state, make_frame_raw,
+    encode, make_connection, make_frame_raw,
     make_db_sync_chunk,
     DEFAULT_PUB_PORT, DEFAULT_CMD_PORT, FRAME_LABELS,
 )
@@ -302,7 +309,7 @@ class BLEDaemon:
 
         # Connecter le bus d’événements aux callbacks ZMQ
         bus.connection.connect(self._on_connection)
-        bus.state_updated.connect(self._on_state_updated)
+
         bus.reverse.connect(self._on_reverse)
         bus.log.connect(self._on_log)
 
@@ -402,6 +409,16 @@ class BLEDaemon:
     # Boucle principale
     # ------------------------------------------------------------------
 
+    async def _heartbeat_loop(self) -> None:
+        """Republish connection state every 5 s so late-joining UIs get BLE status."""
+        while not self._stop:
+            await asyncio.sleep(5)
+            if self._last_conn_payload is not None:
+                try:
+                    self.pub.publish(Topic.CONNECTION, self._last_conn_payload)
+                except Exception:
+                    pass
+
     async def _run_acquisition_loop(self) -> None:
         """Boucle de reconnexion — relance Acquisition.run() indéfiniment."""
         retry = 0
@@ -421,6 +438,7 @@ class BLEDaemon:
         tasks = [
             asyncio.create_task(self._run_acquisition_loop()),
             asyncio.create_task(self.cmd_listener.run()),
+            asyncio.create_task(self._heartbeat_loop()),
         ]
         try:
             await asyncio.gather(*tasks)

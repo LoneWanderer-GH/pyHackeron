@@ -34,6 +34,7 @@ from corelec.BLE.types import (
 )
 from corelec.Analyse.model import RegulatorState
 from corelec.Analyse.database import Database
+from corelec.ReverseEngineering.decoder import Decoder
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ class NetworkClient(threading.Thread):
         self.cmd_port = cmd_port
         self._running = False
         self._gen = 0  # numéro de génération pour invalider les anciens threads
-
+        self._decoder = Decoder()
         # Compteurs pour l’indicateur ZMQ
         self.frames_received: int = 0
         self.last_msg_time: float = 0.0
@@ -234,7 +235,7 @@ class NetworkClient(threading.Thread):
         signals.connection.emit(info)
 
     def _handle_state(self, p: dict, signals) -> None:
-        # Mettre à jour l'état courant directement
+        """Compat ascendante : anciens daemons qui publiaient encore Topic.STATE."""
         for key, value in p.items():
             if hasattr(self.state, key):
                 try:
@@ -264,8 +265,18 @@ class NetworkClient(threading.Thread):
                 self.database.conn.commit()
         except Exception as e:
             logger.debug("DB insert raw_frame: %s", e)
-        decoded = DecodedBase(type=frame_type, raw=raw)
-        signals.reverse.emit(decoded)
+        # Décoder côté client — le daemon est un simple passe-plat
+        from corelec.BLE.frame import Frame
+        frame = Frame.parse(raw)
+        if frame:
+            try:
+                decoded_full = self._decoder.decode(frame)
+                self.state.update(decoded_full)
+                signals.state_updated.emit()
+            except Exception as e:
+                logger.debug("Décodage frame_raw: %s", e)
+        # Émettre le DecodedBase pour la fenêtre RE (type + raw suffisent)
+        signals.reverse.emit(DecodedBase(type=frame_type, raw=raw))
 
     def _handle_db_sync(self, p: dict) -> None:
         """Insère les rows reçues dans la DB locale (reconstruction pour dev)."""
