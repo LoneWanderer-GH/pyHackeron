@@ -130,6 +130,7 @@ class Dashboard(QWidget):
         self.pompes_forcees_value = QLabel("-")
         self.cycle_period_value = QLabel("-")
         self.shutter_mode_value = QLabel("-")
+        self.elx_fault_value = QLabel("-")
         
         self.boost_active_checkbox = QCheckBox("Boost actif")
         self.flow_switch_checkbox = QCheckBox("Flow switch")
@@ -185,6 +186,8 @@ class Dashboard(QWidget):
 
         dashboard_info_layout.addWidget(QLabel("Mode volet %:"), 8, 0)
         dashboard_info_layout.addWidget(self.shutter_mode_value, 8, 1)
+        dashboard_info_layout.addWidget(QLabel("Code défaut elx:"), 8, 2)
+        dashboard_info_layout.addWidget(self.elx_fault_value, 8, 3)
         
         bool_group = QGroupBox("État des commutateurs")
         bool_layout = QHBoxLayout()
@@ -736,6 +739,11 @@ class Dashboard(QWidget):
         self.pompes_forcees_value.setText("ON" if bool(s.pompes_forcees) else "OFF")
         self.cycle_period_value.setText(format_value(s.configured_cycle_period_min))
         self.shutter_mode_value.setText(format_value(s.shutter_mode_electrolyse_percent) + " %")
+        self.elx_fault_value.setText(format_value(s.elx_fault_code))
+        if s.elx_fault_code != 0:
+            self.elx_fault_value.setStyleSheet("color:orange;font-weight:bold;")
+        else:
+            self.elx_fault_value.setStyleSheet("")
         
         self.boost_active_checkbox.setChecked(bool(s.boost_active))
         self.flow_switch_checkbox.setChecked(bool(s.flow_switch))

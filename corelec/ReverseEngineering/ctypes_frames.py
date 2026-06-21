@@ -108,9 +108,14 @@ class Frame77(FrameBase):
             ('redox',     c_uint16),       # bytes 4-5
             ('temp',      c_uint16),       # bytes 6-7  (÷10)
             ('sel',       c_uint16),       # bytes 8-9  (÷10)
-            ('alarme',     c_uint8),  # byte 10
+            ('alarme',     c_uint8),  # byte 10 : code E affiché sur le contrôleur (ex. alarme=12 → « E12 »)
             ('warning',    c_uint8),  # byte 11  alarm_rdx[7:4] | warning[3:0]
-            ('pump_flags', c_uint8),  # byte 12  pompe_moins=bit6, pompe_chl=bit5
+            # byte 12  pump_flags :
+            #   bits 0+1 (0x03) : toujours à 1 dans les données observées (usage inconnu)
+            #   bit 5   (0x20)  : pompe_chl_elx — passe à 0 simultanément avec flow_switch (trame 65)
+            #                     quand l'arrivée d'eau est coupée (électrolyseur arrêté)
+            #   bit 6   (0x40)  : pompe_moins_active (pompe pH-)
+            ('pump_flags', c_uint8),  # byte 12
             ('b13',        c_uint8),  # byte 13  pompes_forcees = bit7
             ('b14',       c_uint8),        # byte 14  unknown
             ('crc',       c_uint8),        # byte 15
@@ -215,11 +220,18 @@ class Frame65(FrameBase):
             ('b5',           c_uint8),   # byte 5  unknown
             ('cycle_period', c_uint8),   # byte 6  cycle_period_min
             ('b7',           c_uint8),   # byte 7  unknown
-            ('cycle_a',   c_uint8),  # byte 8  cycle_a_min
-            ('shutter_mode', c_uint8),  # byte 9  shutter_mode_electrolyse_percent
-            ('io_flags',  c_uint8),  # byte 10  flow_switch=bit2, volet_actif=bit4, volet_force=bit3
+            ('cycle_a',      c_uint8),   # byte 8  cycle_a_min
+            ('shutter_mode', c_uint8),   # byte 9  shutter_mode_electrolyse_percent
+            # byte 10  bitfield io_flags :
+            #   bit 2 (0x04) : toujours à 1 dans les données observées (usage inconnu)
+            #   bit 3 (0x08) : volet_force (non vérifié)
+            #   bit 4 (0x10) : volet_actif (non vérifié)
+            #   bits 5+6 (0x60) : alarme défaut d’écoulement — 0 = flux OK, non-zéro = pas de flux
+            ('io_flags',     c_uint8),   # byte 10
             ('b11',          c_uint8),   # byte 11 unknown
-            ('b12',          c_uint8),   # byte 12 unknown
+            # byte 12 : code d’arrêt de l’électrolyseur lié au défaut de flux
+            #   0 = normal, 7 = arrêt défaut flux, 3 = transitoire (rétablissement)
+            ('elx_fault_code', c_uint8), # byte 12
             ('b13',          c_uint8),   # byte 13 unknown
             ('b14',          c_uint8),   # byte 14 unknown
             ('cycle_b',      c_int8),    # byte 15 cycle_b_min (signed) — overlaps CRC slot
@@ -236,10 +248,13 @@ class Frame65(FrameBase):
             'current_electrolyse_percent':     be.electrolyse,
             'cycle_period_min':                be.cycle_period,
             'shutter_mode_electrolyse_percent': be.shutter_mode,
-            'flow_switch':                     bool(be.io_flags & (1 << 2)),
+            # flow_switch : True = eau en écoulement (bits 5+6 de io_flags non-actifs)
+            # Les bits 5 et 6 passent à 1 simultanément quand l’écoulement s’arrête.
+            'flow_switch':                     (be.io_flags & 0x60) == 0,
             'volet_actif':                     bool(be.io_flags & (1 << 4)),
             'volet_force':                     bool(be.io_flags & (1 << 3)),
             'cycle_a_min':                     be.cycle_a,
             'cycle_b_min':                     be.cycle_b,
+            'elx_fault_code':                  be.elx_fault_code,
         })
         return d

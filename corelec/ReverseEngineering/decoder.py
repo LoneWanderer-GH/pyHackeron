@@ -56,5 +56,6 @@ class Decoder:
             volet_force=d['volet_force'],
             cycle_a_min=d['cycle_a_min'],
             cycle_b_min=d['cycle_b_min'],
+            elx_fault_code=d.get('elx_fault_code', 0),
         )
 

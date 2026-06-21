@@ -59,9 +59,6 @@ class Decoded69(DecodedBase):
 
 @dataclass
 class Decoded65(DecodedBase):
-    # def __post_init__(self):
-    #     self.type = 65
-    # # type:int = 65
     boost_active: bool
     boost_remaining_min: int
     current_electrolyse_percent: int
@@ -72,6 +69,7 @@ class Decoded65(DecodedBase):
     volet_force: bool
     cycle_a_min: int
     cycle_b_min: int
+    elx_fault_code: int = 0   # byte 12 : 0=OK, 7=arrêt défaut flux, 3=transitoire
 
 
 @dataclass

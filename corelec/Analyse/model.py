@@ -48,6 +48,9 @@ class RegulatorState:
     volet_force: bool = False
     
     flow_switch : bool = False
+    # elx_fault_code : code d’arrêt de l’électrolyseur (trame 65 byte 12)
+    # 0=normal, 7=arrêt défaut flux, 3=transitoire
+    elx_fault_code: int = 0
 
     # raw_a10: int = 0
 
@@ -84,6 +87,7 @@ class RegulatorState:
             self.volet_force = decoded.volet_force
             self.cycle_a_min = decoded.cycle_a_min
             self.cycle_b_min = decoded.cycle_b_min
+            self.elx_fault_code = decoded.elx_fault_code
             # self.raw_a10 = decoded.raw_field_a10
 
     def json(self):
