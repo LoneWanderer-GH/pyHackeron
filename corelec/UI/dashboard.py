@@ -638,6 +638,13 @@ class Dashboard(QWidget):
         item = self.reverse_series_items.pop(label, None)
         meta = self.reverse_series_meta.pop(label, None)
         if item is not None:
+            # Supprimer l’entrée de la légende avant de retirer l’item du graphe
+            legend = self.byte_graph.plotItem.legend
+            if legend is not None:
+                try:
+                    legend.removeItem(item)
+                except Exception:
+                    pass
             self.byte_graph.removeItem(item)
         self.reverse_selected_panel.remove_item(label)
 
@@ -671,7 +678,42 @@ class Dashboard(QWidget):
 
     def _on_reverse_series_remove_requested(self, label: str):
         self._remove_reverse_series(label)
-    
+
+    # ------------------------------------------------------------------
+    # Helper : décodage de l’historique depuis raw_frames
+    # ------------------------------------------------------------------
+
+    def _decode_frames_history(self, frame_type: int, limit: int) -> dict:
+        """Charge les dernières `limit` trames du type indiqué et retourne
+        un dict {field: [(ts_iso, float_value), ...]} en ordre chronologique.
+        Seuls les champs numériques connus (non raw_bN, non internes) sont inclus.
+        """
+        _parsers = {77: CFrame77, 83: CFrame83, 65: CFrame65, 69: CFrame69}
+        parser = _parsers.get(frame_type)
+        if parser is None:
+            return {}
+        rows = self.database.load_raw_frames_by_type(frame_type, limit)
+        result: dict[str, list] = {}
+        for ts, hex_str in rows:
+            try:
+                raw = bytearray.fromhex(hex_str)
+                d = parser.from_bytes(raw).as_dict()
+            except Exception:
+                continue
+            for field, value in d.items():
+                if field.startswith('_') or field.startswith('raw_') or field == 'type':
+                    continue
+                if value is None:
+                    continue
+                if isinstance(value, bool):
+                    fval = 1.0 if value else 0.0
+                elif isinstance(value, (int, float)):
+                    fval = float(value)
+                else:
+                    continue
+                result.setdefault(field, []).append((ts, fval))
+        return result
+
     def refresh(self):
         
         s: RegulatorState = self.state
@@ -702,12 +744,17 @@ class Dashboard(QWidget):
         self.volet_actif_checkbox.setChecked(bool(s.volet_actif))
         self.volet_force_checkbox.setChecked(bool(s.volet_force))
         
-        ph = self.database.load_history("ph", 10000)
-        ph_consigne = self.database.load_history("ph_consigne", 10000)
-        electrolyse_consigne_courante = self.database.load_history("current_electrolyse_percent", 10000)
-        electrolyse_consigne_volet_courante = self.database.load_history("shutter_mode_electrolyse_percent", 10000)
-        cycle_a = self.database.load_history("cycle_a_min", 10000)
-        cycle_b = self.database.load_history("cycle_b_min", 10000)
+        # Historique des graphiques décodé depuis raw_frames
+        _h77 = self._decode_frames_history(77, 10000)
+        _h83 = self._decode_frames_history(83, 10000)
+        _h65 = self._decode_frames_history(65, 10000)
+
+        ph = _h77.get('ph', [])
+        ph_consigne = _h83.get('ph_consigne', [])
+        electrolyse_consigne_courante = _h65.get('current_electrolyse_percent', [])
+        electrolyse_consigne_volet_courante = _h65.get('shutter_mode_electrolyse_percent', [])
+        cycle_a = _h65.get('cycle_a_min', [])
+        cycle_b = _h65.get('cycle_b_min', [])
         
         def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 300.0) -> tuple[list[float], list[float]]:
             xs: list[float] = []
@@ -731,7 +778,7 @@ class Dashboard(QWidget):
 
         ph_x, ph_y = to_plot_points(ph)
         ph_cons_x, ph_cons_y = to_plot_points(ph_consigne)
-        pump_hist = self.database.load_history("pompe_moins_active", 2000)
+        pump_hist = _h77.get('pompe_moins_active', [])
         pump_x, pump_y = to_plot_points(pump_hist)
         electro_x, electro_y = to_plot_points(electrolyse_consigne_courante)
         electro_cons_x, electro_cons_y = to_plot_points(electrolyse_consigne_volet_courante)
@@ -763,6 +810,10 @@ class Dashboard(QWidget):
         self.electro_setpoint_curve.setData(electro_cons_x, electro_cons_y, connect='finite')
         self.cycle_a_curve.setData(cycle_a_x, cycle_a_y, connect='finite')
         self.cycle_b_curve.setData(cycle_b_x, cycle_b_y, connect='finite')
+
+        # Mettre à jour les courbes RE actives avec le dernier historique
+        for _lbl in list(self.reverse_series_items):
+            self._refresh_reverse_series(_lbl)
     
     def update_reverse(self, payload: DecodedBase):
         
@@ -770,56 +821,17 @@ class Dashboard(QWidget):
         raw = payload.raw
         
         self.re_label.setText(f"Frame {t} | len={len(raw)}")
-        
-        # -------------------------
-        # TABLE VIEW (byte 1-1)
-        # -------------------------
-        lines: list[str] = []
-        for i, b in enumerate(raw):
-            lines.append(f"{i:02d} | {b:03d} | 0x{b:02x}")
-            
-            if t == 65:
-                self.re_bytes_history[65][i].append(b)
-        
-        # log compact raw bytes instead of displaying raw panel
-        self.append_log("REVERSE RAW: " + " | ".join(lines))
-        
-        # -------------------------
-        # BYTE PLOT (debug simple)
-        # -------------------------
+
+        # Mise à jour de l’historique temporel (utilisé par le graphe RE)
         now_ts = datetime.now().timestamp()
         for i, b in enumerate(raw[:17]):
             key = (t, i)
             if key in self.reverse_time_history:
                 self.reverse_time_history[key].append((now_ts, int(b)))
 
-        # -------------------------
-        # BYTE PAIRS ANALYSIS (uint16)
-        # -------------------------
-        if len(raw) >= 2:
-            
-            u16_values: list[int] = []
-            for i in range(0, len(raw) - 1, 2):
-                val = (raw[i] << 8) | raw[i + 1]
-                u16_values.append(val)
-            
-            self.append_log("REVERSE U16: " + str(u16_values))
-        
-        # -------------------------
-        # FLOAT16 EXPLORATION (optional)
-        # -------------------------
-        if len(raw) >= 2:
-            
-            f16_values: list[float] = []
-            for i in range(0, len(raw) - 1, 2):
-                try:
-                    b = bytes([raw[i], raw[i + 1]])
-                    f16: float = struct.unpack(">e", b)[0]  # float16
-                    f16_values.append(f16)
-                except:
-                    pass
-            
-            self.append_log("REVERSE F16: " + str(f16_values))
+        if t == 65:
+            for i, b in enumerate(raw[:17]):
+                self.re_bytes_history[65][i].append(b)
         
         # -------------------------
         # Update per-frame panel using ctypes-based parsers

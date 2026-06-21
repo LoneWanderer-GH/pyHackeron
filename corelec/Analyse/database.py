@@ -58,89 +58,44 @@ class Database:
         self.conn.commit()
 
     def store_frame(self, frame: Frame):
-
         ts = datetime.now().isoformat()
-
         with self.lock:
-
             self.conn.execute(
                 "INSERT INTO raw_frames(ts,frame_type,frame_hex) VALUES(?,?,?)",
-                (
-                    ts,
-                    frame.type,
-                    frame.raw.hex()
-                )
+                (ts, frame.type, frame.raw.hex()),
             )
-
-            for idx, value in enumerate(frame.raw):
-
-                self.conn.execute(
-                    """
-                    INSERT INTO frame_bytes(
-                        ts,
-                        frame_type,
-                        byte_index,
-                        value
-                    )
-                    VALUES(?,?,?,?)
-                    """,
-                    (
-                        ts,
-                        frame.type,
-                        idx,
-                        value
-                    )
-                )
-
             self.conn.commit()
 
-    def store_decoded(self, decoded:DecodedBase):
+    def store_decoded(self, decoded: DecodedBase) -> None:
+        """No-op : les valeurs décodées sont dérivées des trames brutes par l’UI à l’affichage."""
 
-        ts = datetime.now().isoformat()
-
-        with self.lock:
-
-            for k, v in decoded.__dict__.items():
-
-                if isinstance(v, bool):
-                    v = int(v)
-
-                if not isinstance(v, (int, float)):
-                    continue
-
-                self.conn.execute(
-                    """
-                    INSERT INTO decoded_values(
-                        ts,
-                        name,
-                        value
-                    )
-                    VALUES(?,?,?)
-                    """,
-                    (
-                        ts,
-                        k,
-                        float(v)
-                    )
-                )
-
-            self.conn.commit()
-
-    def load_history(self, name:str, limit:int=1000):
-
+    def load_raw_frames_by_type(self, frame_type: int, limit: int = 2000) -> list:
+        """Retourne (ts, frame_hex) pour le type de trame donné, ordre chronologique."""
         cur = self.conn.cursor()
+        cur.execute(
+            "SELECT ts, frame_hex FROM raw_frames WHERE frame_type=? ORDER BY ts DESC LIMIT ?",
+            (frame_type, limit),
+        )
+        return list(reversed(cur.fetchall()))
 
+    def load_history(self, name: str, limit: int = 1000):
+        """Retourne les `limit` entrées les plus récentes pour `name`, dédupliquées par timestamp.
+
+        Utilise ORDER BY ts DESC pour rester cohérent après un DB sync (INSERT en vrac),
+        et GROUP BY ts pour éviter les doublons si les mêmes données sont insérées plusieurs fois.
+        """
+        cur = self.conn.cursor()
         cur.execute(
             """
-            SELECT ts,value
+            SELECT ts, AVG(value) AS value
             FROM decoded_values
             WHERE name=?
-            ORDER BY id DESC
+            GROUP BY ts
+            ORDER BY ts DESC
             LIMIT ?
             """,
-            (name, limit)
+            (name, limit),
         )
-
         return list(reversed(cur.fetchall()))
 
     def load_raw_frames_history(self, limit: int = 2000) -> list:

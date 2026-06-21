@@ -244,32 +244,26 @@ class NetworkClient(threading.Thread):
         signals.state_updated.emit()
 
     def _handle_value(self, p: dict) -> None:
-        # Stocker dans la DB locale pour les graphiques
-        name = p.get("name")
-        value = p.get("value")
-        ts = p.get("ts", datetime.now().isoformat())
-        if name is None or value is None:
-            return
-        if not isinstance(value, (int, float, bool)):
-            return
-        try:
-            with self.database.lock:
-                self.database.conn.execute(
-                    "INSERT INTO decoded_values(ts, name, value) VALUES(?,?,?)",
-                    (ts, name, float(value)),
-                )
-                self.database.conn.commit()
-        except Exception as e:
-            logger.debug("DB insert error: %s", e)
+        """No-op : les graphiques utilisent désormais raw_frames pour l’historique."""
 
     def _handle_frame_raw(self, p: dict, signals) -> None:
-        # Reconstruire un DecodedBase minimal pour le panneau reverse
         frame_type = p.get("frame_type", 0)
         hex_str = p.get("hex", "")
+        ts = p.get("ts", datetime.now().isoformat())
         try:
             raw = bytearray.fromhex(hex_str)
         except Exception:
             return
+        # Stocker la trame brute en DB locale (source unique pour les graphiques)
+        try:
+            with self.database.lock:
+                self.database.conn.execute(
+                    "INSERT INTO raw_frames(ts, frame_type, frame_hex) VALUES(?,?,?)",
+                    (ts, frame_type, hex_str),
+                )
+                self.database.conn.commit()
+        except Exception as e:
+            logger.debug("DB insert raw_frame: %s", e)
         decoded = DecodedBase(type=frame_type, raw=raw)
         signals.reverse.emit(decoded)
 
