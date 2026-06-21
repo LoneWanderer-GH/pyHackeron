@@ -8,3 +8,5 @@ src/Ada/backends/vendor/*
 typings/
 
 
+
+.idea/

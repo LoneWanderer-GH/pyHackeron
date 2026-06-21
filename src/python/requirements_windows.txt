@@ -1,9 +1,0 @@
-# requirements_windows.txt — Windows / macOS / Linux desktop, Python 3.10+
-bleak
-pyzmq
-
-# Qt binding — PyQt6 recommandé sur desktop
-PyQt6
-
-pyqtgraph
-coloredlogs

@@ -40,14 +40,14 @@ _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.python.UI.qt_compat import QApplication, app_exec
-from src.python.Analyse.database import Database
-from src.python.Analyse.model import RegulatorState
-from src.python.BLE.Acquisition import Acquisition
-from src.python.UI.dashboard import Dashboard
-from src.python.UI.signals import signals
-from src.python.core_logging import setup_logging
-from src.python.net_protocol import DEFAULT_PUB_PORT, DEFAULT_CMD_PORT
+from corelec.UI.qt_compat import QApplication, app_exec
+from corelec.Analyse.database import Database
+from corelec.Analyse.model import RegulatorState
+from corelec.BLE.Acquisition import Acquisition
+from corelec.UI.dashboard import Dashboard
+from corelec.UI.signals import signals
+from corelec.core_logging import setup_logging
+from corelec.net_protocol import DEFAULT_PUB_PORT, DEFAULT_CMD_PORT
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ def main() -> None:
     # Mode réseau
     # ------------------------------------------------------------------
     if args.network:
-        from src.python.net_client import NetworkClient
+        from corelec.net_client import NetworkClient
 
         client = NetworkClient(
             host=args.network,

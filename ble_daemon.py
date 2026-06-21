@@ -35,17 +35,17 @@ import zmq
 import zmq.asyncio
 
 # ---------------------------------------------------------------------------
-# Chemin racine pour les imports src.python.*
+# Chemin racine pour les imports corelec.*
 # ---------------------------------------------------------------------------
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.python.Analyse.database import Database
-from src.python.Analyse.model import RegulatorState
-from src.python.BLE.Acquisition import Acquisition
-from src.python.BLE.types import ConnectionInfo, DecodedBase
-from src.python.net_protocol import (
+from corelec.Analyse.database import Database
+from corelec.Analyse.model import RegulatorState
+from corelec.BLE.Acquisition import Acquisition
+from corelec.BLE.types import ConnectionInfo, DecodedBase
+from corelec.net_protocol import (
     ConnStatus, Topic,
     encode, make_connection, make_value, make_state, make_frame_raw,
     make_db_sync_chunk,
@@ -205,7 +205,7 @@ class BLEDaemon:
         self.pub = ZmqPublisher(pub_port)
 
         # Remplacer signals Qt par notre shim headless
-        import src.python.UI.signals as _signals_mod
+        import corelec.UI.signals as _signals_mod
         self._signals = _HeadlessSignals()
         _signals_mod.signals = self._signals
 

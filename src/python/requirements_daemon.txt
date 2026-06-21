@@ -1,5 +1,0 @@
-# requirements_daemon.txt — Raspberry Pi 3, Python 3.9, mode headless (sans Qt)
-# pip install -r requirements_daemon.txt
-bleak
-pyzmq
-coloredlogs

@@ -1,0 +1,14 @@
+# requirements_raspi3.txt — Raspberry Pi 3, Python 3.9
+# Interface graphique (optionnel sur Pi3 — préférer le mode headless)
+bleak
+pyzmq
+
+# Qt binding (ne fonctionne pas sur Pi3 avec pip — voir note ci-dessous)
+# PyQt5   -> pip install échoue sur Python 3.9 ARM (sipbuild incompatible)
+# Alternative : sudo apt-get install python3-pyqt5 python3-pyqtgraph
+# Puis activer le venv avec --system-site-packages :
+#   python3 -m venv --system-site-packages venv
+# pyqtgraph  -> idem, via apt si PyQt5 est système
+
+coloredlogs
+
