@@ -1,3 +1,4 @@
+from __future__ import annotations
 # model.py
 from dataclasses import dataclass, asdict
 from datetime import datetime
