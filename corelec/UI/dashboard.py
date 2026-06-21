@@ -119,8 +119,7 @@ class Dashboard(QWidget):
         self.sel_value = QLabel("-")
         self.electro_value = QLabel("-")
         self.boost_remaining_value = QLabel("-")
-        self.cycle_a_value = QLabel("-")
-        self.cycle_b_value = QLabel("-")
+        self.inversion_timer_value = QLabel("-")
         self.ph_consigne_value = QLabel("-")
         self.redox_consigne_value = QLabel("-")
         self.alarme_value = QLabel("-")
@@ -128,7 +127,7 @@ class Dashboard(QWidget):
         self.pompe_moins_value = QLabel("-")
         self.regulation_active_value = QLabel("-")
         self.pompes_forcees_value = QLabel("-")
-        self.cycle_period_value = QLabel("-")
+        self.inversion_period_value = QLabel("-")
         self.shutter_mode_value = QLabel("-")
         self.elx_fault_value = QLabel("-")
         
@@ -164,10 +163,8 @@ class Dashboard(QWidget):
         dashboard_info_layout.addWidget(QLabel("Boost restant:"), 3, 2)
         dashboard_info_layout.addWidget(self.boost_remaining_value, 3, 3)
         
-        dashboard_info_layout.addWidget(QLabel("Cycle A:"), 4, 0)
-        dashboard_info_layout.addWidget(self.cycle_a_value, 4, 1)
-        dashboard_info_layout.addWidget(QLabel("Cycle B:"), 4, 2)
-        dashboard_info_layout.addWidget(self.cycle_b_value, 4, 3)
+        dashboard_info_layout.addWidget(QLabel("Cpt. inv. polarité:"), 4, 0)
+        dashboard_info_layout.addWidget(self.inversion_timer_value, 4, 1)
 
         dashboard_info_layout.addWidget(QLabel("Alarme:"), 5, 0)
         dashboard_info_layout.addWidget(self.alarme_value, 5, 1)
@@ -181,8 +178,8 @@ class Dashboard(QWidget):
 
         dashboard_info_layout.addWidget(QLabel("Pompes forcées:"), 7, 0)
         dashboard_info_layout.addWidget(self.pompes_forcees_value, 7, 1)
-        dashboard_info_layout.addWidget(QLabel("Période cycle conf.:"), 7, 2)
-        dashboard_info_layout.addWidget(self.cycle_period_value, 7, 3)
+        dashboard_info_layout.addWidget(QLabel("Pér. inv. pol. conf.:"), 7, 2)
+        dashboard_info_layout.addWidget(self.inversion_period_value, 7, 3)
 
         dashboard_info_layout.addWidget(QLabel("Mode volet %:"), 8, 0)
         dashboard_info_layout.addWidget(self.shutter_mode_value, 8, 1)
@@ -280,19 +277,31 @@ class Dashboard(QWidget):
             )
         
         self.cycle_graph: pg.PlotWidget | pg.PlotItem = pg.PlotWidget(
-                title="Cycle A / Cycle B",
+                title="Inversion de polarité",
                 axisItems={'bottom': self.cycle_date_axis}
         )
         self.cycle_graph.addLegend()
         self.cycle_graph.showGrid(x=True, y=True, alpha=0.3)
         self.cycle_graph.setLabel('bottom', 'Date / heure')
         self.cycle_graph.setLabel('left', 'Min')
-        self.cycle_a_curve = self.cycle_graph.plot(pen=pg.mkPen(color='cyan', width=2), name='Cycle A')
-        self.cycle_b_curve = self.cycle_graph.plot(pen=pg.mkPen(color='magenta', width=2), name='Cycle B')
-        
+        self.inversion_timer_curve = self.cycle_graph.plot(pen=pg.mkPen(color='cyan', width=2), name='Compteur (min)')
+        self.inversion_period_curve = self.cycle_graph.plot(pen=pg.mkPen(color='lime', width=2), name='Période conf. (min)')
+
+        self.boost_date_axis = pg.DateAxisItem(orientation='bottom')
+        self.boost_graph: pg.PlotWidget = pg.PlotWidget(
+                title="Boost restant",
+                axisItems={'bottom': self.boost_date_axis}
+        )
+        self.boost_graph.addLegend()
+        self.boost_graph.showGrid(x=True, y=True, alpha=0.3)
+        self.boost_graph.setLabel('bottom', 'Date / heure')
+        self.boost_graph.setLabel('left', 'Min')
+        self.boost_curve = self.boost_graph.plot(pen=pg.mkPen(color='orange', width=2), name='Boost restant (min)')
+
         graphs_layout.addWidget(self.ph_graph)
         graphs_layout.addWidget(self.electro_graph)
         graphs_layout.addWidget(self.cycle_graph)
+        graphs_layout.addWidget(self.boost_graph)
 
         # prepare interactive series lists
         self._plot_series[self.ph_graph] = [
@@ -305,14 +314,18 @@ class Dashboard(QWidget):
             {'x':'electro_cons_x','y':'electro_cons_y','color':'red','name':'Consigne %'},
         ]
         self._plot_series[self.cycle_graph] = [
-            {'x':'cycle_a_x','y':'cycle_a_y','color':'cyan','name':'Cycle A'},
-            {'x':'cycle_b_x','y':'cycle_b_y','color':'magenta','name':'Cycle B'},
+            {'x':'inversion_timer_x','y':'inversion_timer_y','color':'cyan','name':'Compteur (min)'},
+            {'x':'inversion_period_x','y':'inversion_period_y','color':'lime','name':'Période conf. (min)'},
         ]
-        
+        self._plot_series[self.boost_graph] = [
+            {'x':'boost_x','y':'boost_y','color':'orange','name':'Boost restant (min)'},
+        ]
+
         # setup interactive crosshairs for graphs
         self._setup_crosshair(self.ph_graph)
         self._setup_crosshair(self.electro_graph)
         self._setup_crosshair(self.cycle_graph)
+        self._setup_crosshair(self.boost_graph)
 
         graphs_tab.setLayout(graphs_layout)
         
@@ -728,8 +741,7 @@ class Dashboard(QWidget):
         self.sel_value.setText(format_value(s.sel))
         self.electro_value.setText(format_value(s.current_electrolyse_percent) + " %")
         self.boost_remaining_value.setText(format_value(s.boost_remaining_time_min))
-        self.cycle_a_value.setText(format_value(s.cycle_a_min))
-        self.cycle_b_value.setText(format_value(s.cycle_b_min))
+        self.inversion_timer_value.setText(format_value(s.inversion_timer_min))
         self.ph_consigne_value.setText(format_value(s.ph_consigne))
         self.redox_consigne_value.setText(format_value(s.redox_consigne))
         self.alarme_value.setText(format_value(s.alarme))
@@ -741,7 +753,7 @@ class Dashboard(QWidget):
         else:
             self.regulation_active_value.setStyleSheet("")
         self.pompes_forcees_value.setText("ON" if bool(s.pompes_forcees) else "OFF")
-        self.cycle_period_value.setText(format_value(s.configured_cycle_period_min))
+        self.inversion_period_value.setText(format_value(s.inversion_period_min))
         self.shutter_mode_value.setText(format_value(s.shutter_mode_electrolyse_percent) + " %")
         self.elx_fault_value.setText(format_value(s.elx_fault_code))
         if s.elx_fault_code != 0:
@@ -763,8 +775,9 @@ class Dashboard(QWidget):
         ph_consigne = _h83.get('ph_consigne', [])
         electrolyse_consigne_courante = _h65.get('current_electrolyse_percent', [])
         electrolyse_consigne_volet_courante = _h65.get('shutter_mode_electrolyse_percent', [])
-        cycle_a = _h65.get('cycle_a_min', [])
-        cycle_b = _h65.get('cycle_b_min', [])
+        inversion_timer = _h65.get('inversion_timer_min', [])
+        inversion_period = _h65.get('inversion_period_min', [])
+        boost_remain = _h65.get('boost_remaining_min', [])
         
         def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 300.0) -> tuple[list[float], list[float]]:
             xs: list[float] = []
@@ -792,8 +805,9 @@ class Dashboard(QWidget):
         pump_x, pump_y = to_plot_points(pump_hist)
         electro_x, electro_y = to_plot_points(electrolyse_consigne_courante)
         electro_cons_x, electro_cons_y = to_plot_points(electrolyse_consigne_volet_courante)
-        cycle_a_x, cycle_a_y = to_plot_points(cycle_a)
-        cycle_b_x, cycle_b_y = to_plot_points(cycle_b)
+        inversion_timer_x, inversion_timer_y = to_plot_points(inversion_timer)
+        inversion_period_x, inversion_period_y = to_plot_points(inversion_period)
+        boost_x, boost_y = to_plot_points(boost_remain)
 
         # expose arrays for crosshair nearest-point lookup
         self.ph_x, self.ph_y = ph_x, ph_y
@@ -801,8 +815,9 @@ class Dashboard(QWidget):
         self.pump_x = pump_x
         self.electro_x, self.electro_y = electro_x, electro_y
         self.electro_cons_x, self.electro_cons_y = electro_cons_x, electro_cons_y
-        self.cycle_a_x, self.cycle_a_y = cycle_a_x, cycle_a_y
-        self.cycle_b_x, self.cycle_b_y = cycle_b_x, cycle_b_y
+        self.inversion_timer_x, self.inversion_timer_y = inversion_timer_x, inversion_timer_y
+        self.inversion_period_x, self.inversion_period_y = inversion_period_x, inversion_period_y
+        self.boost_x, self.boost_y = boost_x, boost_y
 
         self.ph_curve.setData(ph_x, ph_y, connect='finite')
         self.ph_setpoint_curve.setData(ph_cons_x, ph_cons_y, connect='finite')
@@ -818,8 +833,9 @@ class Dashboard(QWidget):
         self.ph_right_vb.setYRange(-0.05, 1.05, padding=0)
         self.electro_curve.setData(electro_x, electro_y, connect='finite')
         self.electro_setpoint_curve.setData(electro_cons_x, electro_cons_y, connect='finite')
-        self.cycle_a_curve.setData(cycle_a_x, cycle_a_y, connect='finite')
-        self.cycle_b_curve.setData(cycle_b_x, cycle_b_y, connect='finite')
+        self.inversion_timer_curve.setData(inversion_timer_x, inversion_timer_y, connect='finite')
+        self.inversion_period_curve.setData(inversion_period_x, inversion_period_y, connect='finite')
+        self.boost_curve.setData(boost_x, boost_y, connect='finite')
 
         # Mettre à jour les courbes RE actives avec le dernier historique
         for _lbl in list(self.reverse_series_items):

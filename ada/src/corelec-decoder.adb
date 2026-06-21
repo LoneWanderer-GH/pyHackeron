@@ -98,7 +98,7 @@ package body Corelec.Decoder is
       use type Interfaces.C.double;
       use type Interfaces.C.int;
       Boost_Remaining_Min : constant Corelec.Types.I32 := Corelec.Types.I32 (Frame.Raw (4));
-      Cycle_Period_Min    : constant Corelec.Types.I32 := Corelec.Types.I32 (Frame.Raw (6));
+      Inversion_Period_Min : constant Corelec.Types.I32 := Corelec.Types.I32 (Frame.Raw (6));
    begin
       Out_D.Kind := Corelec.Types.Kind_65;
       Out_D.Boost_Active := (if Boost_Remaining_Min > 0 then 1 else 0);
@@ -106,17 +106,15 @@ package body Corelec.Decoder is
       Out_D.Boost_Remaining_Min := Boost_Remaining_Min;
       Out_D.Has_Current_Electrolyse_Percent := 1;
       Out_D.Current_Electrolyse_Percent := Corelec.Types.I32 (Frame.Raw (2));
-      Out_D.Has_Cycle_Period_Min := 1;
-      Out_D.Cycle_Period_Min := Cycle_Period_Min;
+      Out_D.Has_Inversion_Period_Min := 1;
+      Out_D.Inversion_Period_Min := Inversion_Period_Min;
       Out_D.Has_Shutter_Mode_Electrolyse := 1;
       Out_D.Shutter_Mode_Electrolyse_Percent := Corelec.Types.I32 (Frame.Raw (9));
       Out_D.Flow_Switch := (if (Frame.Raw (10) and 16#04#) /= 0 then 1 else 0);
       Out_D.Volet_Actif := (if (Frame.Raw (10) and 16#10#) /= 0 then 1 else 0);
       Out_D.Volet_Force := (if (Frame.Raw (10) and 16#08#) /= 0 then 1 else 0);
-      Out_D.Has_Cycle_A_Min := 1;
-      Out_D.Cycle_A_Min := Corelec.Types.I32 (Frame.Raw (8));
-      Out_D.Has_Cycle_B_Min := 1;
-      Out_D.Cycle_B_Min := Corelec.Types.I32 (Frame.Raw (15));
+      Out_D.Has_Inversion_Timer_Min := 1;
+      Out_D.Inversion_Timer_Min := Corelec.Types.I32 (Frame.Raw (8));
    end Decode_65;
 
    procedure Decode_Frame

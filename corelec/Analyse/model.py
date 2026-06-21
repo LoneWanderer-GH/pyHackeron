@@ -37,13 +37,12 @@ class RegulatorState:
     boost_remaining_time_min: int = 0
     boost_active: bool = False
     
-    configured_cycle_period_min : int = 0
+    inversion_period_min : int = 0
     # chlorinator_power_percent : float = 0
     current_electrolyse_percent: float = 0
     shutter_mode_electrolyse_percent: float = 0
     
-    cycle_a_min : int = 0
-    cycle_b_min : int = 0
+    inversion_timer_min : int = 0
 
     volet_actif: bool = False
     volet_force: bool = False
@@ -81,14 +80,13 @@ class RegulatorState:
         elif t == 65 and isinstance(decoded, Decoded65):
             self.boost_remaining_time_min = decoded.boost_remaining_min
             self.boost_active = decoded.boost_active
-            self.configured_cycle_period_min = decoded.cycle_period_min
+            self.inversion_period_min = decoded.inversion_period_min
             self.current_electrolyse_percent = decoded.current_electrolyse_percent
             self.shutter_mode_electrolyse_percent = decoded.shutter_mode_electrolyse_percent
             self.flow_switch = decoded.flow_switch
             self.volet_actif = decoded.volet_actif
             self.volet_force = decoded.volet_force
-            self.cycle_a_min = decoded.cycle_a_min
-            self.cycle_b_min = decoded.cycle_b_min
+            self.inversion_timer_min = decoded.inversion_timer_min
             self.elx_fault_code = decoded.elx_fault_code
             # self.raw_a10 = decoded.raw_field_a10
 

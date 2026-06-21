@@ -7,6 +7,9 @@ from corelec.UI.qt_compat import (
 )
 from typing import Dict, Any, List
 
+# Octets structurels du protocole — non cochables, non sélectionnables
+_STRUCTURAL_OFFSETS: frozenset[int] = frozenset({0, 1, 15, 16})
+
 
 class ReverseByteTable(QTableWidget):
     # emit when a checkbox is toggled: dict contains type, offset, label, checked
@@ -28,19 +31,25 @@ class ReverseByteTable(QTableWidget):
         self._interpret_checks: dict[tuple[tuple[int, ...], str], bool] = {}
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
-
     def populate(self, parsed: Dict[str, Any]):
         # parsed contains raw_b0..raw_b16, _known_offsets, _offset_names
         raw = [parsed.get(f'raw_b{i}', 0) for i in range(17)]
         self.known_offsets = parsed.get('_known_offsets', []) or []
         offset_names: Dict[int, str] = parsed.get('_offset_names', {}) or {}
 
+        # Sauvegarder la sélection avant de recréer les items (setItem() détruit le modèle de sélection)
+        selected_rows = {idx.row() for idx in self.selectedIndexes()}
+
         self._suppress_signal = True
         for i in range(17):
-            # Plot checkbox
+            is_structural = i in _STRUCTURAL_OFFSETS
+            # Plot checkbox — désactivé pour les octets structurels
             item_chk = QTableWidgetItem('')
-            item_chk.setFlags(item_chk.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            item_chk.setCheckState(Qt.CheckState.Checked if i in self.checked_offsets else Qt.CheckState.Unchecked)
+            if not is_structural:
+                item_chk.setFlags(item_chk.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                item_chk.setCheckState(Qt.CheckState.Checked if i in self.checked_offsets else Qt.CheckState.Unchecked)
+            else:
+                item_chk.setFlags(Qt.ItemFlag.NoItemFlags)
             self.setItem(i, 0, item_chk)
             # offset
             off = QTableWidgetItem(str(i))
@@ -64,9 +73,16 @@ class ReverseByteTable(QTableWidget):
             it_name = QTableWidgetItem(offset_names.get(i, ''))
             it_name.setFlags(it_name.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.setItem(i, 5, it_name)
-            # color rows by known/unknown
-            bg_color = QColor('#d7f0dc') if known else QColor('#f7dfcf')
-            fg_color = QColor('#1a2a1a') if known else QColor('#3a1500')
+            # color rows by known/unknown; grey for structural
+            if is_structural:
+                bg_color = QColor('#404040')
+                fg_color = QColor('#909090')
+            elif known:
+                bg_color = QColor('#d7f0dc')
+                fg_color = QColor('#1a2a1a')
+            else:
+                bg_color = QColor('#f7dfcf')
+                fg_color = QColor('#3a1500')
             bg_brush = QBrush(bg_color)
             fg_brush = QBrush(fg_color)
             for col in range(6):
@@ -74,7 +90,19 @@ class ReverseByteTable(QTableWidget):
                 if cell is not None:
                     cell.setBackground(bg_brush)
                     cell.setForeground(fg_brush)
+                    if is_structural:
+                        cell.setFlags(Qt.ItemFlag.NoItemFlags)
         self._suppress_signal = False
+
+        # Restaurer la sélection après recréation des items
+        if selected_rows:
+            for row in selected_rows:
+                if row in _STRUCTURAL_OFFSETS:
+                    continue
+                for col in range(self.columnCount()):
+                    cell = self.item(row, col)
+                    if cell and bool(cell.flags() & Qt.ItemFlag.ItemIsSelectable):
+                        cell.setSelected(True)
 
     def _on_cell_changed(self, row, column):
         if self._suppress_signal:
@@ -91,29 +119,38 @@ class ReverseByteTable(QTableWidget):
 
     def _on_ctx(self, pos):
         rows = sorted({idx.row() for idx in self.selectedIndexes()})
+        # Exclure les octets structurels de toute interprétation
+        rows = [r for r in rows if r not in _STRUCTURAL_OFFSETS]
         if not rows:
             return
-        # check if consecutive
         consecutive = all(rows[i] + 1 == rows[i + 1] for i in range(len(rows) - 1))
         unknown_only = all(r not in self.known_offsets for r in rows)
         menu = QMenu(self)
         if consecutive and unknown_only:
-            # offer interpretations
-            actions = [
-                ('int16_be', 'Interpret as int16 BE'),
-                ('int16_le', 'Interpret as int16 LE'),
-                ('uint16_be', 'Interpret as uint16 BE'),
-                ('float16_be', 'Interpret as float16 BE'),
-                ('string', 'Interpret as ASCII string'),
-                ('bitmask', 'Interpret as bitmask')
-            ]
             row_key = tuple(rows)
-            for key, label in actions:
+            # Interprétations 16 bits : exactement 2 octets adjacents requis
+            if len(rows) == 2:
+                for key, label in [
+                    ('int16_be',   'Interpreter comme int16 BE'),
+                    ('int16_le',   'Interpreter comme int16 LE'),
+                    ('uint16_be',  'Interpreter comme uint16 BE'),
+                    ('float16_be', 'Interpreter comme float16 BE'),
+                ]:
+                    a = menu.addAction(label)
+                    a.setCheckable(True)
+                    a.setChecked(self._interpret_checks.get((row_key, key), False))
+                    a.toggled.connect(lambda checked, k=key, r=list(rows): self._request_interp(r, k, checked))
+            # Interprétations multi-octets : toute sélection consécutive
+            for key, label in [
+                ('string',  'Interpreter comme chaîne ASCII'),
+                ('bitmask', 'Interpreter comme masque de bits'),
+            ]:
                 a = menu.addAction(label)
                 a.setCheckable(True)
                 a.setChecked(self._interpret_checks.get((row_key, key), False))
-                a.toggled.connect(lambda checked, k=key, r=rows: self._request_interp(r, k, checked))
-        menu.exec(self.mapToGlobal(pos))
+                a.toggled.connect(lambda checked, k=key, r=list(rows): self._request_interp(r, k, checked))
+        if not menu.isEmpty():
+            menu.exec(self.mapToGlobal(pos))
 
     def _request_interp(self, rows: List[int], kind: str, checked: bool):
         self._interpret_checks[(tuple(rows), kind)] = checked

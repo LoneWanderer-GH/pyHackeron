@@ -128,7 +128,10 @@ class Frame77(FrameBase):
             #                  Pendant ce temps : pump_flags (byte 12) = 0x03 (regulation_active=0,
             #                  pompe_moins_active=0) — le mode forcé suspend la régulation auto.
             ('sensor_config_flags', c_uint8),  # byte 13
-            ('b14',          c_uint8),  # byte 14  unknown
+            # byte 14 : constante fixe par type de trame (jamais un CRC)
+            #   vérifié sur 5000 trames : Frame77=0x82 toujours
+            #   Probablement un identifiant de sous-type ou version de protocole.
+            ('frame_const',  c_uint8),  # byte 14  constante=0x82 pour Frame 77
             ('crc',       c_uint8),        # byte 15
             ('end',       c_uint8),        # byte 16
         ]
@@ -171,7 +174,9 @@ class Frame83(FrameBase):
             ('b7',  c_uint8), ('b8', c_uint8), ('b9', c_uint8),
             ('err_max',    c_uint16),   # bytes 10-11 (÷100)
             ('err_min',    c_uint16),   # bytes 12-13 (÷100)
-            ('b14', c_uint8),
+            # byte 14 : constante fixe par type de trame
+            #   vérifié sur 5000 trames : Frame83=0x03 toujours
+            ('frame_const', c_uint8),   # byte 14  constante=0x03 pour Frame 83
             ('crc', c_uint8),           # byte 15
             ('end', c_uint8),           # byte 16
         ]
@@ -201,7 +206,10 @@ class Frame69(FrameBase):
             ('redox_consigne', c_uint16),  # bytes 2-3
             ('b4',  c_uint8), ('b5',  c_uint8), ('b6',  c_uint8), ('b7',  c_uint8),
             ('b8',  c_uint8), ('b9',  c_uint8), ('b10', c_uint8), ('b11', c_uint8),
-            ('b12', c_uint8), ('b13', c_uint8), ('b14', c_uint8),
+            ('b12', c_uint8), ('b13', c_uint8),
+            # byte 14 : constante fixe par type de trame
+            #   vérifié sur 5000 trames : Frame69=0x61 toujours
+            ('frame_const', c_uint8),  # byte 14  constante=0x61 pour Frame 69
             ('crc', c_uint8),   # byte 15
             ('end', c_uint8),   # byte 16
         ]
@@ -226,14 +234,16 @@ class Frame65(FrameBase):
         _fields_ = [
             ('sync',         c_uint8),
             ('typ',          c_uint8),
-            ('electrolyse',  c_uint8),   # byte 2  current_electrolyse_percent
-            ('b3',           c_uint8),   # byte 3  unknown
-            ('boost_remain', c_uint8),   # byte 4  boost_remaining_min
-            ('b5',           c_uint8),   # byte 5  unknown
-            ('cycle_period', c_uint8),   # byte 6  cycle_period_min
-            ('b7',           c_uint8),   # byte 7  unknown
-            ('cycle_a',      c_uint8),   # byte 8  cycle_a_min
-            ('shutter_mode', c_uint8),   # byte 9  shutter_mode_electrolyse_percent
+            ('electrolyse',  c_uint8),   # byte 2   current_electrolyse_percent
+            ('boost_remain', c_uint16),  # bytes 3-4 boost_remaining_min (uint16 BE)
+            #                           # CONFIRMÉ : boost 6h = 360 min = 0x0168
+            #                           #   → byte 3 = 0x01, byte 4 = 0x68 (104)
+            ('inversion_period', c_uint16),  # bytes 5-6 inversion_period_min (uint16 BE)
+            #                               # Période config. d'inversion de polarité de l'électrolyseur
+            #                               # (défaut observé : 240 min = 4h ; jusqu'à 24h = 1440 min)
+            ('inversion_timer',  c_uint16),  # bytes 7-8 inversion_timer_min (uint16 BE)
+            #                               # Compteur écoulé du cycle d'inversion courant (en minutes)
+            ('shutter_mode', c_uint8),   # byte 9   shutter_mode_electrolyse_percent
             # byte 10  bitfield io_flags :
             #   bit 2 (0x04) : toujours à 1 dans les données observées (usage inconnu)
             #   bit 3 (0x08) : volet_force (non vérifié)
@@ -244,9 +254,12 @@ class Frame65(FrameBase):
             # byte 12 : code d’arrêt de l’électrolyseur lié au défaut de flux
             #   0 = normal, 7 = arrêt défaut flux, 3 = transitoire (rétablissement)
             ('elx_fault_code', c_uint8), # byte 12
-            ('b13',          c_uint8),   # byte 13 unknown
-            ('b14',          c_uint8),   # byte 14 unknown
-            ('cycle_b',      c_int8),    # byte 15 cycle_b_min (signed) — overlaps CRC slot
+            ('b13',             c_uint8),   # byte 13 unknown
+            # byte 14 : CONSTANTE fixe par type de trame (jamais un CRC)
+            #   vérifié sur 5000 trames : Frame65=0x49, Frame69=0x61, Frame77=0x82, Frame83=0x03
+            #   Probablement un identifiant de sous-type ou version de protocole.
+            ('frame_const',    c_uint8),   # byte 14  constante fixe par type
+            ('crc',            c_uint8),   # byte 15
             ('end',          c_uint8),   # byte 16
         ]
 
@@ -258,15 +271,14 @@ class Frame65(FrameBase):
             'boost_active':                    be.boost_remain > 0,
             'boost_remaining_min':             be.boost_remain,
             'current_electrolyse_percent':     be.electrolyse,
-            'cycle_period_min':                be.cycle_period,
+            'inversion_period_min':             be.inversion_period,
             'shutter_mode_electrolyse_percent': be.shutter_mode,
             # flow_switch : True = eau en écoulement (bits 5+6 de io_flags non-actifs)
             # Les bits 5 et 6 passent à 1 simultanément quand l’écoulement s’arrête.
             'flow_switch':                     (be.io_flags & 0x60) == 0,
             'volet_actif':                     bool(be.io_flags & (1 << 4)),
             'volet_force':                     bool(be.io_flags & (1 << 3)),
-            'cycle_a_min':                     be.cycle_a,
-            'cycle_b_min':                     be.cycle_b,
+            'inversion_timer_min':             be.inversion_timer,
             'elx_fault_code':                  be.elx_fault_code,
         })
         return d

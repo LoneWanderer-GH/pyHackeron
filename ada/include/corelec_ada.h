@@ -58,12 +58,12 @@ typedef struct {
     int boost_remaining_min;
     uint8_t has_current_electrolyse_percent;
     int current_electrolyse_percent;
-    uint8_t has_cycle_period_min;
-    int cycle_period_min;
+    uint8_t has_inversion_period_min;
+    int inversion_period_min;
     uint8_t has_shutter_mode_electrolyse_percent;
     int shutter_mode_electrolyse_percent;
-    uint8_t has_cycle_a_min;
-    int cycle_a_min;
+    uint8_t has_inversion_timer_min;
+    int inversion_timer_min;
     uint8_t has_cycle_b_min;
     int cycle_b_min;
     uint8_t alarme;

@@ -63,13 +63,12 @@ class Decoded65(DecodedBase):
     boost_active: bool
     boost_remaining_min: int
     current_electrolyse_percent: int
-    cycle_period_min: int
+    inversion_period_min: int
     shutter_mode_electrolyse_percent: int
     flow_switch: bool
     volet_actif: bool
     volet_force: bool
-    cycle_a_min: int
-    cycle_b_min: int
+    inversion_timer_min: int
     elx_fault_code: int = 0   # byte 12 : 0=OK, 7=arrêt défaut flux, 3=transitoire
 
 

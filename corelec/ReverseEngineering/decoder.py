@@ -50,13 +50,12 @@ class Decoder:
             boost_active=d['boost_active'],
             boost_remaining_min=d['boost_remaining_min'],
             current_electrolyse_percent=d['current_electrolyse_percent'],
-            cycle_period_min=d['cycle_period_min'],
+            inversion_period_min=d['inversion_period_min'],
             shutter_mode_electrolyse_percent=d['shutter_mode_electrolyse_percent'],
             flow_switch=d['flow_switch'],
             volet_actif=d['volet_actif'],
             volet_force=d['volet_force'],
-            cycle_a_min=d['cycle_a_min'],
-            cycle_b_min=d['cycle_b_min'],
+            inversion_timer_min=d['inversion_timer_min'],
             elx_fault_code=d.get('elx_fault_code', 0),
         )
 
