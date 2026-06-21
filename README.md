@@ -35,7 +35,7 @@ raspi/
 ├── install_raspi.sh          Script d'installation automatique sur Pi3
 ├── corelec-daemon.service    Unité systemd
 └── config.env.example        Modèle de configuration
-src/python/
+corelec/
 ├── net_protocol.py           Protocole réseau (topics ZMQ, sérialisation JSON)
 ├── net_client.py             Client réseau ZMQ pour l'UI
 ├── BLE/                      Acquisition BLE (bleak), parsing trames, types
@@ -45,7 +45,7 @@ src/python/
 │   ├── stream.py             Réassemblage flux BLE → trames complètes
 │   └── types.py              Dataclasses Decoded65/69/77/83, ConnectionInfo…
 ├── Analyse/
-│   ├── database.py           SQLite — stockage trames brutes + valeurs décodées
+│   ├── database.py           SQLite — stockage trames brutes (source unique de vérité)
 │   └── model.py              RegulatorState — état courant du régulateur
 ├── ReverseEngineering/
 │   ├── decoder.py            Décodeur des 4 types de trames (77/83/65/69)
@@ -59,8 +59,23 @@ src/python/
 ├── requirements_daemon.txt   Pi3 headless uniquement (bleak + pyzmq)
 ├── requirements_raspi3.txt   Pi3 avec UI Qt (via apt)
 └── requirements_windows.txt  Desktop (PyQt6 + pyzmq)
-└── Ada/                      Bibliothèque Ada 2022 (logique métier, API C)
+ada/                          Bibliothèque Ada 2022 (logique métier, API C)
 ```
+
+---
+
+## Stockage SQLite
+
+Seule la table **`raw_frames`** est la source de vérité pour l'historique :
+
+| Table           | Colonnes                              | Rôle                                      |
+|-----------------|---------------------------------------|-------------------------------------------|
+| `raw_frames`    | id, ts, frame_type, frame_hex         | Toutes les trames reçues (hex 17 octets)  |
+| `decoded_values`| id, ts, name, value                   | Conservée pour compatibilité, non écrite  |
+| `frame_bytes`   | id, ts, frame_type, byte_index, value | Conservée pour compatibilité, non écrite  |
+
+Les graphiques de l'UI décodent à la volée depuis `raw_frames` au moment du chargement.  
+Lors d'un **Sync DB**, seule la table `raw_frames` est transférée depuis le daemon vers l'UI.
 
 ---
 

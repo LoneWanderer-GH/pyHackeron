@@ -1,5 +1,13 @@
 from __future__ import annotations
 # model.py
+"""
+model.py — État courant du régulateur Corelec.
+
+RegulatorState est mis à jour en temps réel par Acquisition (mode BLE direct)
+ou par NetworkClient._handle_state (mode réseau via le topic corelec/state).
+Il est lu par le Dashboard pour afficher les valeurs instantanées.
+L’historique des graphiques est dérivé de raw_frames et non de cet objet.
+"""
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
@@ -8,6 +16,7 @@ from corelec.ReverseEngineering.decoder import Decoded65, Decoded69, Decoded77, 
 
 @dataclass
 class RegulatorState:
+    """Snapshot complet de l’état du régulateur, mis à jour à chaque trame reçue."""
     timestamp : str = datetime.now().isoformat()
     ph: float | None = None
     redox: float | None = None

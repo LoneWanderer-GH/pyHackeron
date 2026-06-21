@@ -553,10 +553,13 @@ class Acquisition:
 
             self.connection_start_time = time.monotonic()
             self.metrics = ConnectionMetrics()
-            
+
+            device_name = getattr(self.client, "name", None) or ""
+            conn_msg = f"{device_name}  {self.address}".strip() if device_name else self.address
+
             signals.connection.emit(ConnectionInfo(
                 state="connected",
-                message=f"{self.address}",
+                message=conn_msg,
                 elapsed=int(elapsed),
                 remaining=max(0, int(self.connection_time_out_s - elapsed)),
                 timeout=self.connection_time_out_s,

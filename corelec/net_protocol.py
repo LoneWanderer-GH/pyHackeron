@@ -45,13 +45,14 @@ class Topic:
     # Snapshot complet de l'état du régulateur (toutes les 2 s)
     STATE = "corelec/state"
 
-    # Réponse à une requête de sync DB (tableau de rows decoded_values)
+    # Réponse à une requête de sync DB (tableaux de rows raw_frames)
+    # payload: {"table": "raw_frames", "rows": [...], "chunk_index": 0, "total_chunks": 1}
     DB_SYNC = "corelec/db/sync"
 
     # Commandes UI → daemon
     CMD_RETRY   = "corelec/cmd/retry"
     CMD_CANCEL  = "corelec/cmd/cancel"
-    CMD_DB_SYNC = "corelec/cmd/db_sync"   # demande un dump de la DB
+    CMD_DB_SYNC = "corelec/cmd/db_sync"   # demande un dump raw_frames depuis le daemon
 
 
 # ---------------------------------------------------------------------------
@@ -148,3 +149,16 @@ def make_db_sync_chunk(
 DEFAULT_PUB_PORT = 5555   # daemon publie ici
 DEFAULT_SUB_PORT = 5555   # UI s'abonne ici
 DEFAULT_CMD_PORT = 5556   # UI envoie des commandes ici (PUSH/PULL)
+
+
+# ---------------------------------------------------------------------------
+# Labels human-friendly des types de trames
+# Partagés entre le StatusBoard (ble_daemon.py) et l'UI RE (dashboard.py).
+# ---------------------------------------------------------------------------
+
+FRAME_LABELS: dict[int, str] = {
+    77: "Frame 77  pH/Rdx/T",
+    65: "Frame 65  Elec/Cyc",
+    83: "Frame 83  cons.pH",
+    69: "Frame 69  cons.Rdx",
+}

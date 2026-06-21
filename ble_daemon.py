@@ -50,7 +50,7 @@ from corelec.net_protocol import (
     ConnStatus, Topic,
     encode, make_connection, make_value, make_state, make_frame_raw,
     make_db_sync_chunk,
-    DEFAULT_PUB_PORT, DEFAULT_CMD_PORT,
+    DEFAULT_PUB_PORT, DEFAULT_CMD_PORT, FRAME_LABELS,
 )
 
 logger = logging.getLogger(__name__)
@@ -149,13 +149,13 @@ class StatusBoard:
             tbl.add_section()
             tbl.add_row("Total trames",
                         _Text(str(total), style="bold white"),
-                        "Frame 77  pH/Rdx/T",
+                        FRAME_LABELS[77],
                         _Text(str(self.frames[77]), style="bold cyan"))
-            tbl.add_row("Frame 65  Elec/Cyc",
+            tbl.add_row(FRAME_LABELS[65],
                         _Text(str(self.frames[65]), style="bold cyan"),
-                        "Frame 83  cons.pH",
+                        FRAME_LABELS[83],
                         _Text(str(self.frames[83]), style="bold cyan"))
-            tbl.add_row("Frame 69  cons.Rdx",
+            tbl.add_row(FRAME_LABELS[69],
                         _Text(str(self.frames[69]), style="bold cyan"),
                         "", "")
 
@@ -322,6 +322,7 @@ class BLEDaemon:
 
         self._stop = False
         self.board = board
+        self._last_conn_payload: dict | None = None
 
     # ------------------------------------------------------------------
     # Callbacks signaux → ZMQ
@@ -350,6 +351,7 @@ class BLEDaemon:
             uptime_s=m.connection_uptime_s,
         )
         self.pub.publish(Topic.CONNECTION, payload)
+        self._last_conn_payload = payload
         if self.board:
             self.board.update_connection(info)
         logger.info("[BLE] %s — %s", info.state, info.message)
@@ -358,6 +360,10 @@ class BLEDaemon:
         try:
             d = asdict(self.state)
             self.pub.publish(Topic.STATE, make_state(d))
+            # Re-publier l’état de connexion courant pour les clients qui viennent
+            # de se connecter (ils ont manqué l’événement initial).
+            if self._last_conn_payload is not None:
+                self.pub.publish(Topic.CONNECTION, self._last_conn_payload)
             # Publier aussi chaque valeur individuellement
             ts = d.get("timestamp", datetime.now().isoformat())
             for name, value in d.items():

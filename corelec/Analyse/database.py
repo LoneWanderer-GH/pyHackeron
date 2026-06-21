@@ -12,6 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 class Database:
+    """
+    Couche de persistance SQLite pour Corelec Monitor.
+
+    Source unique de vérité : la table **raw_frames** contient toutes les trames
+    BLE reçues sous forme hexadécimale. Les graphiques de l’UI décodent à la
+    volée depuis ces trames au moment de l’affichage — aucune valeur décodée
+    n’est écrite en base.
+
+    Tables :
+        raw_frames      (id, ts ISO-8601, frame_type int, frame_hex str)
+        decoded_values  conservée pour compatibilité, n’est plus écrite
+        frame_bytes     conservée pour compatibilité, n’est plus écrite
+
+    Thread-safe : toutes les écritures utilisent ``self.lock``.
+    """
 
     def __init__(self, path:str | Path="pool.db"):
         path  : Path = Path(path)

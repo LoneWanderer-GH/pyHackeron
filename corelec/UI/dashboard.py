@@ -329,9 +329,6 @@ class Dashboard(QWidget):
         re_tab = QWidget()
         re_layout = QVBoxLayout()
         
-        self.re_label = QLabel("No frame")
-        re_layout.addWidget(self.re_label)
-        
         self.byte_date_axis = pg.DateAxisItem(orientation='bottom')
         self.byte_graph : pg.PlotWidget | pg.PlotItem = pg.PlotWidget(title="Reverse Engineering", axisItems={'bottom': self.byte_date_axis})
         self.byte_graph.addLegend()
@@ -349,7 +346,7 @@ class Dashboard(QWidget):
             table_layout = QVBoxLayout()
             table_layout.addWidget(table)
             table_host.setLayout(table_layout)
-            self.reverse_tables_tabs.addTab(table_host, f"Frame {typ}")
+            self.reverse_tables_tabs.addTab(table_host, FRAME_LABELS.get(typ, f"Frame {typ}"))
             self.reverse_tables[typ] = table
 
         self.reverse_selected_panel = GraphSelectionPanel()
@@ -495,7 +492,7 @@ class Dashboard(QWidget):
 
     def _on_sync_db(self) -> None:
         if self._network_client is not None:
-            self._network_client.request_db_sync("decoded_values")
+            self._network_client.request_db_sync("raw_frames")
 
     def _setup_crosshair(self, graph: pg.PlotWidget):
         vline = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=1))
@@ -819,8 +816,6 @@ class Dashboard(QWidget):
         
         t = payload.type
         raw = payload.raw
-        
-        self.re_label.setText(f"Frame {t} | len={len(raw)}")
 
         # Mise à jour de l’historique temporel (utilisé par le graphe RE)
         now_ts = datetime.now().timestamp()

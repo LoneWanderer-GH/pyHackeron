@@ -1,3 +1,16 @@
+"""
+types.py — Dataclasses de résultat BLE pour Corelec Monitor.
+
+Hiérarchie :
+    DecodedBase         Base commune : type + raw (17 octets)
+    ├── Decoded77       pH, Redox, Temp, Sel, alarmes, pompes
+    ├── Decoded83       Consigne pH, erreur max/min
+    ├── Decoded65       Électrolyse, Boost, Cycles A/B, Volet
+    └── Decoded69       Consigne Redox
+
+ConnectionInfo      Statut BLE publié sur le bus interne / ZMQ
+ConnectionMetrics   Compteurs de paquets / RSSI
+"""
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional

@@ -3,23 +3,28 @@
 # install_raspi.sh — Installation et configuration du daemon Corelec sur Pi3
 # =============================================================================
 # Usage :
-#   sudo bash install_raspi.sh [BLE_ADDRESS]
+#   sudo bash raspi/install_raspi.sh [BLE_ADDRESS]
 #
 # Ce script :
-#   1. Installe les dépendances système (Python 3.9, ZeroMQ, BlueZ)
+#   1. Installe les dépendances système (Python 3.9+, ZeroMQ, BlueZ)
 #   2. Crée un virtualenv Python dans /opt/corelec/venv
-#   3. Installe les paquets Python (requirements_raspi3.txt)
-#   4. Crée /etc/corelec/config.env avec l'adresse BLE
+#   3. Installe les paquets Python (corelec/requirements_daemon.txt)
+#   4. Crée /etc/corelec/config.env avec l’adresse BLE
 #   5. Installe et active le service systemd corelec-daemon.service
 #
-# Testé sur Raspberry Pi OS Bullseye (Debian 11) avec Python 3.9
+# Lancé depuis la racine du projet :
+#   git clone ... && cd corelec-monitor
+#   sudo bash raspi/install_raspi.sh B4:E3:F9:5A:0A:13
+#
+# Testé sur Raspberry Pi OS Bullseye (Debian 11) avec Python 3.9+
 
 set -euo pipefail
 
 BLE_ADDRESS="${1:-}"
 INSTALL_DIR="/opt/corelec"
 VENV_DIR="$INSTALL_DIR/venv"
-SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
+# SRC_DIR = racine du projet (répertoire parent de raspi/)
+SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="/etc/corelec"
 SERVICE_NAME="corelec-daemon"
 RUN_USER="pi"   # à adapter si l'utilisateur est différent
@@ -73,10 +78,10 @@ chown -R "$RUN_USER":"$RUN_USER" "$INSTALL_DIR"
 info "Création du virtualenv dans $VENV_DIR…"
 sudo -u "$RUN_USER" python3 -m venv "$VENV_DIR"
 
-info "Installation des paquets Python…"
+info "Installation des paquets Python (mode headless)…"
 sudo -u "$RUN_USER" "$VENV_DIR/bin/pip" install --upgrade pip wheel
 sudo -u "$RUN_USER" "$VENV_DIR/bin/pip" install \
-    -r "$INSTALL_DIR/src/python/requirements_raspi3.txt"
+    -r "$INSTALL_DIR/corelec/requirements_daemon.txt"
 
 # ---------------------------------------------------------------------------
 # Fichier de configuration
