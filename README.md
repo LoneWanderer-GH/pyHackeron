@@ -15,7 +15,7 @@ Le régulateur communique en Bluetooth Low Energy ; ce projet intercepte, décod
 │  ├── BLE (bleak)                │  PUSH   │  ├── NetworkClient (ZMQ SUB)    │
 │  ├── Decoder                    │         │  ├── Dashboard Qt               │
 │  ├── SQLite (pool.db)           │         │  └── SQLite locale (optionnel)  │
-│  └── ZMQ PUB :5555 CMD :5556   │         │                                 │
+│  └── ZMQ PUB :5555 CMD :5556    │         │                                 │
 └─────────────────────────────────┘         └─────────────────────────────────┘
 ```
 
