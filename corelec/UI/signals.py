@@ -31,6 +31,9 @@ class QtBridge(QObject):
     log           = Signal(str)
     error         = Signal(str)
     db_sync_complete = Signal(str)   # table synchronisée
+    # UI → BLE : commande d'écriture GATT
+    # Émis par les panneaux de commande ; relayé vers bus.ble_command
+    ble_command   = Signal(dict)
 
     def __init__(self, app_bus: AppBus = bus, parent:QObject|None=None) -> None:
         super().__init__(parent)
@@ -42,6 +45,8 @@ class QtBridge(QObject):
         app_bus.log.connect(self.log.emit)
         app_bus.error.connect(self.error.emit)
         app_bus.db_sync_complete.connect(self.db_sync_complete.emit)
+        # Qt signal → bus Python : widgets UI → Acquisition (local) ou ZMQ (réseau)
+        self.ble_command.connect(self._bus.ble_command.emit)
 
     # Sens UI → BLE : proxy transparent vers les canaux du bus
     @property

@@ -263,11 +263,12 @@ class ZmqPublisher:
 class ZmqCommandListener:
     """Écoute les commandes PUSH envoyées par l'UI sur un port dédié."""
 
-    def __init__(self, port: int, on_retry, on_cancel, on_db_sync):
+    def __init__(self, port: int, on_retry, on_cancel, on_db_sync, on_ble_command=None):
         self._port = port
         self._on_retry = on_retry
         self._on_cancel = on_cancel
         self._on_db_sync = on_db_sync
+        self._on_ble_command = on_ble_command
         self._running = False
 
     async def run(self) -> None:
@@ -290,6 +291,10 @@ class ZmqCommandListener:
                         elif topic == Topic.CMD_DB_SYNC:
                             payload = json.loads(parts[1]) if len(parts) > 1 else {}
                             self._on_db_sync(payload)
+                        elif topic == Topic.CMD_BLE_COMMAND:
+                            if self._on_ble_command is not None:
+                                payload = json.loads(parts[1]) if len(parts) > 1 else {}
+                                self._on_ble_command(payload)
                 except asyncio.TimeoutError:
                     pass
         finally:
@@ -364,6 +369,7 @@ class BLEDaemon:
             on_retry=lambda: bus.retry_requested.emit(),
             on_cancel=lambda: bus.cancel_requested.emit(),
             on_db_sync=lambda p: self._handle_db_sync(p),
+            on_ble_command=lambda p: self.acq._on_ble_command(p),
         )
 
         self._stop = False

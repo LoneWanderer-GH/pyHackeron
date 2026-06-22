@@ -65,12 +65,13 @@ class Decoded65(DecodedBase):
     current_electrolyse_percent: int
     inversion_period_min: int
     shutter_mode_electrolyse_percent: int
-    flow_switch: bool
+    flow_switch: bool       # bit2 io_flags : pressostat physique fermé
+    flow_alarm: bool        # bit6 io_flags : alarme défaut d'écoulement
     volet_actif: bool
     volet_force: bool
     polarity_phase_a: bool
     inversion_timer_min: int
-    elx_fault_code: int = 0   # byte 12 : 0=OK, 7=arrêt défaut flux, 3=transitoire
+    elx_fault_code: int = 0   # byte 12 nibble bas : 0=OK, 7=E.07 défaut flux, 3=transitoire
 
 
 @dataclass

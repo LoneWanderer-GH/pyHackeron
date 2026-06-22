@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import queue as _stdlib_queue
 import time
 from datetime import datetime
 import logging
@@ -50,6 +51,9 @@ class Acquisition:
 
         signals.retry_requested.connect(self.request_restart)
         signals.cancel_requested.connect(self.request_cancel)
+        # File de commandes GATT entrantes (thread-safe : stdlib queue)
+        self._cmd_queue: _stdlib_queue.Queue[bytes] = _stdlib_queue.Queue()
+        signals.ble_command.connect(self._on_ble_command)
         self.connection_time_out_s = 120
 
     def request_cancel(self):
@@ -57,6 +61,34 @@ class Acquisition:
 
     def request_restart(self):
         self.stop_event.set()
+
+    # ------------------------------------------------------------------
+    # Gestion des commandes GATT sortantes
+    # ------------------------------------------------------------------
+
+    def _on_ble_command(self, payload: dict) -> None:
+        """Enqueue une commande GATT — thread-safe (appelé depuis Qt main thread)."""
+        from corelec.BLE.commands import build_from_payload
+        frame = build_from_payload(payload)
+        if frame:
+            self._cmd_queue.put_nowait(frame)
+            logger.debug("CMD enqueue: %s", payload.get('type'))
+
+    async def _drain_commands(self, client: BleakClient) -> None:
+        """Vide la file de commandes et les envoie.
+
+        Isolé : une exception d'envoi n'affecte jamais la boucle de réception.
+        """
+        while True:
+            try:
+                frame = self._cmd_queue.get_nowait()
+            except _stdlib_queue.Empty:
+                break
+            try:
+                await client.write_gatt_char(CHAR_UUID, frame, response=True)
+                logger.info("CMD BLE envoyée: %s", frame.hex())
+            except Exception as exc:
+                logger.error("CMD BLE échouée (réception non affectée): %s", exc)
 
     def notify(self, _ :BleakGATTCharacteristic, data: bytearray):
         self.metrics.packets_received += 1
@@ -143,6 +175,7 @@ class Acquisition:
     async def poll_loop(self, client:BleakClient):
 
         while not self.stop_event.is_set():
+            await self._drain_commands(client)
             await self.send_seq(client)
             await asyncio.sleep(2)
 
@@ -246,6 +279,10 @@ class Acquisition:
                 if self.task_poll:
                     self.task_poll.cancel()
             except:
+                pass
+            try:
+                signals.ble_command.disconnect(self._on_ble_command)
+            except Exception:
                 pass
         
             try:

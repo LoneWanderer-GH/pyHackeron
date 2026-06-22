@@ -55,6 +55,7 @@ class Decoder:
             inversion_period_min=d['inversion_period_min'],
             shutter_mode_electrolyse_percent=d['shutter_mode_electrolyse_percent'],
             flow_switch=d['flow_switch'],
+            flow_alarm=d['flow_alarm'],
             volet_actif=d['volet_actif'],
             volet_force=d['volet_force'],
             polarity_phase_a=d['polarity_phase_a'],

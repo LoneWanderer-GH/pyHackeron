@@ -259,14 +259,19 @@ class Frame65(FrameBase):
             #                               # Compteur écoulé du cycle d'inversion courant (en minutes)
             ('shutter_mode', c_uint8),   # byte 9   shutter_mode_electrolyse_percent
             # byte 10  bitfield io_flags :
-            #   bit 2 (0x04)    : toujours actif dans les données observées (usage inconnu).
+            #   bit 2 (0x04)    : flow_switch — état physique du pressostat d'eau.
+            #                     1 = pressostat fermé (eau en circulation). Toujours 1
+            #                     dans nos données observées (l'installation est normalement en eau).
+            #                     Confirmé par RE externe (guix77/esphome-akeron-salt-duo).
             #   bit 3 (0x08)    : volet_force (non vérifié)
             #   bit 4 (0x10)    : volet_actif (non vérifié)
             #   bit 5 (0x20)    : indicateur de phase de polarité A.
             #                     1 = phase A (io_flags typique = 0x24),
             #                     0 = phase B après remise à 0 du compteur (io_flags = 0x04).
-            #   bit 6 (0x40)    : alarme défaut d'écoulement.
-            #                     Quand bit6=1 ET bit5=1 simultanément → io_flags=0x64 → flux interrompu.
+            #   bit 6 (0x40)    : flow_alarm — alarme défaut d'écoulement.
+            #                     Bit distinct du pressostat physique (bit2) :
+            #                     le pressostat peut rester fermé (bit2=1) pendant que l'alarme
+            #                     est levée (bit6=1) → io_flags=0x64.
             #   Hypothèse initiale « bits 0+1 = polarité » INFIRMÉE :
             #   toutes les trames observées (n>31 000) ont bits 0+1 = 0.
             #   La valeur 0x23 mentionnée dans les notes antérieures était une lecture erronée de 0x24.
@@ -294,9 +299,13 @@ class Frame65(FrameBase):
             'current_electrolyse_percent':     be.electrolyse,
             'inversion_period_min':             be.inversion_period,
             'shutter_mode_electrolyse_percent': be.shutter_mode,
-            # flow_switch : True = eau en écoulement (bit 6 de io_flags inactif).
-            # Bit 6 (0x40) seul = alarme flux. Bit 5 (0x20) = indicateur de phase, indépendant du flux.
-            'flow_switch':                     (be.io_flags & 0x40) == 0,
+            # flow_switch : True = pressostat fermé, eau en circulation (bit 2 actif).
+            # Confirmé par RE externe : (f[10] >> 2) & 1
+            'flow_switch':                     bool(be.io_flags & 0x04),
+            # flow_alarm : True = alarme défaut d'écoulement (bit 6 actif).
+            # Bit distinct de flow_switch : le pressostat peut être fermé (bit2=1)
+            # pendant que l'alarme est levée (bit6=1) → 0x64.
+            'flow_alarm':                      bool(be.io_flags & 0x40),
             'volet_actif':                     bool(be.io_flags & (1 << 4)),
             'volet_force':                     bool(be.io_flags & (1 << 3)),
             # polarity_phase_a : True = phase A de polarité (bit 5 actif).
@@ -304,11 +313,13 @@ class Frame65(FrameBase):
             # NB : bits 0+1 sont toujours à 0 dans toutes les trames observées (>31 000).
             'polarity_phase_a':                bool(be.io_flags & 0x20),
             'inversion_timer_min':             be.inversion_timer,
-            'elx_fault_code':                  be.elx_fault_code,
+            # elx_fault_code : nibble bas de l'octet 12 (0x0F masqué).
+            # 0=normal, 7=arrêt défaut flux (E.07), 3=transitoire
+            'elx_fault_code':                  be.elx_fault_code & 0x0F,
             # Noms des bits connus de io_flags (byte 10) pour l'UI Reverse Engineering
             '_bit_names': {
                 10: {
-                    2: 'const_1',
+                    2: 'flow_switch',
                     3: 'volet_force',
                     4: 'volet_actif',
                     5: 'polarity_phase_a',

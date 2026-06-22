@@ -28,6 +28,7 @@ class RegulatorState:
 
     alarme: int = 0
     warning: int = 0
+    alarm_rdx: int = 0
 
     pompe_moins_active: bool = False
     regulation_active: bool = False
@@ -48,9 +49,9 @@ class RegulatorState:
     volet_force: bool = False
     polarity_phase_a: bool = False
 
-    flow_switch : bool = False
-    # elx_fault_code : code d’arrêt de l’électrolyseur (trame 65 byte 12)
-    # 0=normal, 7=arrêt défaut flux, 3=transitoire
+    flow_switch: bool = False    # pressostat physique fermé (bit2 io_flags)
+    flow_alarm: bool = False     # alarme défaut d'écoulement (bit6 io_flags)
+    # elx_fault_code : nibble bas byte 12 trame 65 (0=normal, 7=E.07 défaut flux, 3=transitoire)
     elx_fault_code: int = 0
 
     # raw_a10: int = 0
@@ -67,6 +68,7 @@ class RegulatorState:
 
             self.alarme = decoded.alarme
             self.warning = decoded.warning
+            self.alarm_rdx = decoded.alarm_rdx
             self.pompe_moins_active = decoded.pompe_moins_active
             self.regulation_active = decoded.regulation_active
             self.config_capteur_sel_actif = decoded.config_capteur_sel_actif
@@ -85,6 +87,7 @@ class RegulatorState:
             self.current_electrolyse_percent = decoded.current_electrolyse_percent
             self.shutter_mode_electrolyse_percent = decoded.shutter_mode_electrolyse_percent
             self.flow_switch = decoded.flow_switch
+            self.flow_alarm = decoded.flow_alarm
             self.volet_actif = decoded.volet_actif
             self.volet_force = decoded.volet_force
             self.polarity_phase_a = decoded.polarity_phase_a

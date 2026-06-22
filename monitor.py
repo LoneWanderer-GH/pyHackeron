@@ -159,6 +159,8 @@ def main() -> None:
         # Relier les boutons Retry / Cancel du dashboard aux commandes réseau
         signals.retry_requested.connect(client.reconnect)
         signals.cancel_requested.connect(client.request_cancel)
+        # Commandes GATT : le signal Qt ble_command est relayé vers le dæmon via ZMQ
+        signals.ble_command.connect(client.send_ble_command)
 
         if args.sync_db:
             logger.info("Demande de sync DB distante…")

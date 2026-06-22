@@ -99,6 +99,10 @@ class NetworkClient(threading.Thread):
     def request_db_sync(self, table: str = "decoded_values") -> None:
         self.send_cmd(Topic.CMD_DB_SYNC, {"table": table})
 
+    def send_ble_command(self, payload: dict) -> None:
+        """Envoie une commande GATT au dæmon via ZMQ."""
+        self.send_cmd(Topic.CMD_BLE_COMMAND, payload)
+
     # ------------------------------------------------------------------
     # Thread SUB
     # ------------------------------------------------------------------

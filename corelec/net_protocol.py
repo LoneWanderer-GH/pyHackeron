@@ -51,7 +51,8 @@ class Topic:
     # Commandes UI → daemon
     CMD_RETRY   = "corelec/cmd/retry"
     CMD_CANCEL  = "corelec/cmd/cancel"
-    CMD_DB_SYNC = "corelec/cmd/db_sync"   # demande un dump raw_frames depuis le daemon
+    CMD_DB_SYNC = "corelec/cmd/db_sync"     # demande un dump raw_frames depuis le daemon
+    CMD_BLE_COMMAND = "corelec/cmd/ble_command"  # commande d'écriture GATT
 
 
 # ---------------------------------------------------------------------------

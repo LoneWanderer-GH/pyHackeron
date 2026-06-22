@@ -11,8 +11,8 @@ import pyqtgraph as pg
 import bisect
 from corelec.UI.qt_compat import (
     Qt, QTimer, QFontDatabase,
-    QCheckBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QTextEdit,
-    QProgressBar, QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QTextEdit,
+    QProgressBar, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 import functools
 
@@ -23,7 +23,9 @@ from corelec.core_logging import attach_qt_log_emitter
 from corelec.ReverseEngineering.ctypes_frames import FrameBase as CFrameBase, Frame65 as CFrame65, Frame69 as CFrame69, Frame77 as CFrame77, Frame83 as CFrame83
 from corelec.UI.reverse_ui import ReverseByteTable, GraphSelectionPanel
 from corelec.UI.signals import signals
+from corelec.UI.widgets import StatusBadge, PolarityWidget
 from corelec.net_protocol import FRAME_LABELS
+from corelec.ReverseEngineering.alarm_codes import alarm_elx_text, alarm_rdx_text, warning_text
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,7 @@ class Dashboard(QWidget):
         self.redox_consigne_value = QLabel("-")
         self.alarme_value = QLabel("-")
         self.warning_value = QLabel("-")
+        self.alarm_rdx_value = QLabel("-")
         self.pompe_moins_value = QLabel("-")
         self.regulation_active_value = QLabel("-")
         self.pompes_forcees_value = QLabel("-")
@@ -136,19 +139,15 @@ class Dashboard(QWidget):
         self.shutter_mode_value = QLabel("-")
         self.elx_fault_value = QLabel("-")
         
-        self.boost_active_checkbox = QCheckBox("Boost actif")
-        self.flow_switch_checkbox = QCheckBox("Flow switch")
-        self.volet_actif_checkbox = QCheckBox("Volet actif")
-        self.volet_force_checkbox = QCheckBox("Volet forcé")
-        self.polarity_phase_a_checkbox = QCheckBox("Phase A (polarité)")
-        for checkbox in [
-                self.boost_active_checkbox,
-                self.flow_switch_checkbox,
-                self.volet_actif_checkbox,
-                self.volet_force_checkbox,
-                self.polarity_phase_a_checkbox,
-        ]:
-            checkbox.setEnabled(False)
+        # Indicateurs d'état (read-only — pastilles colorées, pas de checkboxes)
+        self.boost_active_badge      = StatusBadge()
+        self.flow_switch_badge       = StatusBadge()
+        self.flow_alarm_badge        = StatusBadge()
+        self.volet_actif_badge       = StatusBadge()
+        self.volet_force_badge       = StatusBadge()
+        self.regulation_active_badge = StatusBadge()
+        self.pompe_moins_badge       = StatusBadge()
+        self.polarity_widget         = PolarityWidget()
         
         dashboard_info_layout.addWidget(QLabel("pH:"), 0, 0)
         dashboard_info_layout.addWidget(self.ph_value, 0, 1)
@@ -173,9 +172,9 @@ class Dashboard(QWidget):
         dashboard_info_layout.addWidget(QLabel("Cpt. inv. polarité:"), 4, 0)
         dashboard_info_layout.addWidget(self.inversion_timer_value, 4, 1)
 
-        dashboard_info_layout.addWidget(QLabel("Alarme:"), 5, 0)
+        dashboard_info_layout.addWidget(QLabel("Alarme ELX:"), 5, 0)
         dashboard_info_layout.addWidget(self.alarme_value, 5, 1)
-        dashboard_info_layout.addWidget(QLabel("Warning:"), 5, 2)
+        dashboard_info_layout.addWidget(QLabel("Avertissement:"), 5, 2)
         dashboard_info_layout.addWidget(self.warning_value, 5, 3)
 
         dashboard_info_layout.addWidget(QLabel("Pompe pH-:"), 6, 0)
@@ -192,22 +191,48 @@ class Dashboard(QWidget):
         dashboard_info_layout.addWidget(self.shutter_mode_value, 8, 1)
         dashboard_info_layout.addWidget(QLabel("Code défaut elx:"), 8, 2)
         dashboard_info_layout.addWidget(self.elx_fault_value, 8, 3)
+
+        dashboard_info_layout.addWidget(QLabel("Alarme Régul.:"), 9, 0)
+        dashboard_info_layout.addWidget(self.alarm_rdx_value, 9, 1)
         
-        bool_group = QGroupBox("État des commutateurs")
-        bool_layout = QHBoxLayout()
-        bool_layout.addWidget(self.boost_active_checkbox)
-        bool_layout.addWidget(self.flow_switch_checkbox)
-        bool_layout.addWidget(self.volet_actif_checkbox)
-        bool_layout.addWidget(self.volet_force_checkbox)
-        bool_layout.addWidget(self.polarity_phase_a_checkbox)
-        bool_group.setLayout(bool_layout)
+        # Appliquer une police agrandie aux valeurs clés
+        for lbl in [self.ph_value, self.redox_value]:
+            lbl.setStyleSheet("font-size:22px; font-weight:700; color:#e8e8e8;")
+        for lbl in [self.temp_value, self.sel_value]:
+            lbl.setStyleSheet("font-size:17px; font-weight:600;")
+
+        bool_group = QGroupBox("État système")
+        bool_outer = QHBoxLayout()
+
+        badges_widget = QWidget()
+        badges_layout = QGridLayout(badges_widget)
+        badges_layout.setHorizontalSpacing(10)
+        badges_layout.setVerticalSpacing(8)
+        badges_layout.addWidget(QLabel("Boost:"),          0, 0)
+        badges_layout.addWidget(self.boost_active_badge,   0, 1)
+        badges_layout.addWidget(QLabel("Flux eau:"),       0, 2)
+        badges_layout.addWidget(self.flow_switch_badge,    0, 3)
+        badges_layout.addWidget(QLabel("Alarme flux:"),    0, 4)
+        badges_layout.addWidget(self.flow_alarm_badge,     0, 5)
+        badges_layout.addWidget(QLabel("Volet actif:"),    1, 0)
+        badges_layout.addWidget(self.volet_actif_badge,    1, 1)
+        badges_layout.addWidget(QLabel("Volet forcé:"),    1, 2)
+        badges_layout.addWidget(self.volet_force_badge,    1, 3)
+        badges_layout.addWidget(QLabel("Régulation:"),     1, 4)
+        badges_layout.addWidget(self.regulation_active_badge, 1, 5)
+        badges_layout.addWidget(QLabel("Pompe pH-:"),      2, 0)
+        badges_layout.addWidget(self.pompe_moins_badge,    2, 1)
+
+        bool_outer.addWidget(badges_widget, 2)
+        bool_outer.addWidget(self.polarity_widget, 1)
+        bool_group.setLayout(bool_outer)
         
         dashboard_layout.addWidget(dashboard_info)
         dashboard_layout.addWidget(bool_group)
         dashboard_tab.setStyleSheet(
-            "QLabel { font-size: 15px; }"
-            "QCheckBox { font-size: 14px; }"
-            "QGroupBox { font-size: 14px; font-weight: 600; }"
+            "QLabel { font-size: 14px; }"
+            "QGroupBox { font-size: 13px; font-weight: 600; border:1px solid #444; border-radius:6px; margin-top:8px; padding:6px; }"
+            "QGroupBox::title { color:#ccc; subcontrol-origin:margin; left:8px; }"
         )
         
         dashboard_tab.setLayout(dashboard_layout)
@@ -240,14 +265,16 @@ class Dashboard(QWidget):
         pw.showAxis('right')
         pw.getAxis('right').setLabel('Pompe pH- (0/1)')
         pw.getAxis('right').setPen(pg.mkPen(color='r'))
-        pw.getAxis('right').setTicks([[(0.0, 'OFF'), (1.0, 'ON')]])
+        pw.getAxis('right').setTicks([[(0.0, 'OFF'), (1.0, 'ON'), (2.0, ' ')]])
         pw.scene().addItem(self.ph_right_vb)
         pw.getAxis('right').linkToView(self.ph_right_vb)
         self.ph_right_vb.setXLink(pw.getViewBox())
+        self.ph_right_vb.setMouseEnabled(x=False, y=False)
+        self.ph_right_vb.setLimits(yMin=-0.05, yMax=2.1)
 
         def _update_ph_right_vb():
             self.ph_right_vb.setGeometry(pw.getViewBox().sceneBoundingRect())
-            self.ph_right_vb.setYRange(-0.05, 1.05, padding=0)
+            self.ph_right_vb.setYRange(0, 2, padding=0)
 
         pw.getViewBox().sigResized.connect(_update_ph_right_vb)
         _update_ph_right_vb()
@@ -300,14 +327,16 @@ class Dashboard(QWidget):
         _cpw.showAxis('right')
         _cpw.getAxis('right').setLabel('Phase A (1=A / 0=B)')
         _cpw.getAxis('right').setPen(pg.mkPen(color=(180, 100, 255)))
-        _cpw.getAxis('right').setTicks([[(0.0, 'B'), (1.0, 'A')]])
+        _cpw.getAxis('right').setTicks([[(0.0, 'B'), (1.0, 'A'), (2.0, ' ')]])
         _cpw.scene().addItem(self.cycle_right_vb)
         _cpw.getAxis('right').linkToView(self.cycle_right_vb)
         self.cycle_right_vb.setXLink(_cpw.getViewBox())
+        self.cycle_right_vb.setMouseEnabled(x=False, y=False)
+        self.cycle_right_vb.setLimits(yMin=-0.05, yMax=2.1)
 
         def _update_cycle_right_vb():
             self.cycle_right_vb.setGeometry(_cpw.getViewBox().sceneBoundingRect())
-            self.cycle_right_vb.setYRange(-0.05, 1.05, padding=0)
+            self.cycle_right_vb.setYRange(0, 2, padding=0)
 
         _cpw.getViewBox().sigResized.connect(_update_cycle_right_vb)
         _update_cycle_right_vb()
@@ -422,6 +451,113 @@ class Dashboard(QWidget):
         self.tabs.addTab(log_tab, "Logs")
         
         self.tabs.addTab(re_tab, "Reverse Engineering")
+
+        # ------------------------------------------------------------------
+        # Onglet Commandes
+        # ------------------------------------------------------------------
+        cmd_tab = QWidget()
+        cmd_outer = QVBoxLayout(cmd_tab)
+        cmd_outer.setSpacing(10)
+
+        # ---- Consignes de régulation ----
+        grp_consignes = QGroupBox("Consignes de régulation")
+        lay_con = QGridLayout(grp_consignes)
+        lay_con.setColumnStretch(1, 1)
+
+        lay_con.addWidget(QLabel("pH cible :"), 0, 0)
+        self._cmd_ph_spin = QDoubleSpinBox()
+        self._cmd_ph_spin.setRange(6.0, 8.5)
+        self._cmd_ph_spin.setSingleStep(0.05)
+        self._cmd_ph_spin.setDecimals(2)
+        self._cmd_ph_spin.setValue(7.20)
+        lay_con.addWidget(self._cmd_ph_spin, 0, 1)
+        _btn_ph = QPushButton("Envoyer")
+        _btn_ph.clicked.connect(self._cmd_send_ph)
+        lay_con.addWidget(_btn_ph, 0, 2)
+
+        lay_con.addWidget(QLabel("Redox cible :"), 1, 0)
+        self._cmd_redox_spin = QSpinBox()
+        self._cmd_redox_spin.setRange(400, 1100)
+        self._cmd_redox_spin.setSingleStep(10)
+        self._cmd_redox_spin.setValue(730)
+        self._cmd_redox_spin.setSuffix(" mV")
+        lay_con.addWidget(self._cmd_redox_spin, 1, 1)
+        _btn_rdx = QPushButton("Envoyer")
+        _btn_rdx.clicked.connect(self._cmd_send_redox)
+        lay_con.addWidget(_btn_rdx, 1, 2)
+
+        # ---- Électrolyse ----
+        grp_elx = QGroupBox("Électrolyse")
+        lay_elx = QGridLayout(grp_elx)
+        lay_elx.setColumnStretch(1, 1)
+
+        lay_elx.addWidget(QLabel("Production :"), 0, 0)
+        self._cmd_elx_spin = QSpinBox()
+        self._cmd_elx_spin.setRange(0, 100)
+        self._cmd_elx_spin.setSingleStep(10)
+        self._cmd_elx_spin.setValue(70)
+        self._cmd_elx_spin.setSuffix(" %")
+        lay_elx.addWidget(self._cmd_elx_spin, 0, 1)
+        _btn_elx = QPushButton("Envoyer")
+        _btn_elx.clicked.connect(self._cmd_send_elx)
+        lay_elx.addWidget(_btn_elx, 0, 2)
+
+        lay_elx.addWidget(QLabel("Boost :"), 1, 0)
+        self._cmd_boost_spin = QSpinBox()
+        self._cmd_boost_spin.setRange(10, 480)
+        self._cmd_boost_spin.setSingleStep(15)
+        self._cmd_boost_spin.setValue(120)
+        self._cmd_boost_spin.setSuffix(" min")
+        lay_elx.addWidget(self._cmd_boost_spin, 1, 1)
+        _btn_boost_start = QPushButton("▶ Démarrer boost")
+        _btn_boost_start.clicked.connect(self._cmd_send_boost_start)
+        lay_elx.addWidget(_btn_boost_start, 1, 2)
+        _btn_boost_stop = QPushButton("■ Arrêter boost")
+        _btn_boost_stop.clicked.connect(self._cmd_send_boost_stop)
+        lay_elx.addWidget(_btn_boost_stop, 2, 2)
+
+        # ---- Volet / couvercle ----
+        grp_volet = QGroupBox("Volet / Couvercle")
+        lay_volet = QHBoxLayout(grp_volet)
+        _btn_cv_on  = QPushButton("Forcer l'ouverture")
+        _btn_cv_on.clicked.connect(lambda: self._cmd_send_cover(True))
+        _btn_cv_off = QPushButton("Annuler le forçage")
+        _btn_cv_off.clicked.connect(lambda: self._cmd_send_cover(False))
+        _note_volet = QLabel("ℹ Utilise la dernière valeur de io_flags reçue")
+        _note_volet.setStyleSheet("color:#888; font-size:11px; font-style:italic;")
+        lay_volet.addWidget(_btn_cv_on)
+        lay_volet.addWidget(_btn_cv_off)
+        lay_volet.addWidget(_note_volet)
+        lay_volet.addStretch()
+
+        # ---- Avertissement sécurité ----
+        grp_sec = QGroupBox()
+        grp_sec.setStyleSheet(
+            "QGroupBox { border:1px solid #c0392b; border-radius:6px; "
+            "padding:8px; margin-top:0; }"
+        )
+        _lbl_sec = QLabel(
+            "⚠  Ce régulateur n’implémente aucune authentification BLE ni code PIN. "
+            "Toute commande est envoyée sans vérification d’identité. "
+            "Sécurisez l’accès au niveau réseau."
+        )
+        _lbl_sec.setWordWrap(True)
+        _lbl_sec.setStyleSheet("color:#e74c3c; font-size:12px;")
+        QVBoxLayout(grp_sec).addWidget(_lbl_sec)
+
+        # ---- Barre de statut commande ----
+        self._cmd_status_label = QLabel("—")
+        self._cmd_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cmd_status_label.setStyleSheet("color:#aaa; font-size:12px; padding:6px;")
+
+        cmd_outer.addWidget(grp_consignes)
+        cmd_outer.addWidget(grp_elx)
+        cmd_outer.addWidget(grp_volet)
+        cmd_outer.addWidget(grp_sec)
+        cmd_outer.addWidget(self._cmd_status_label)
+        cmd_outer.addStretch()
+
+        self.tabs.addTab(cmd_tab, "Commandes ⚡")
         
         layout = QVBoxLayout()
         
@@ -794,13 +930,14 @@ class Dashboard(QWidget):
 
     # Champs utiles par type de trame (= colonnes lues dans decoded_frames)
     _DECODED_FIELDS: dict[int, list[str]] = {
-        77: ['ph', 'redox', 'temp', 'sel', 'alarme', 'warning',
+        77: ['ph', 'redox', 'temp', 'sel', 'alarme', 'warning', 'alarm_rdx',
              'regulation_active', 'pompe_moins_active', 'pompes_forcees',
              'config_capteur_sel_actif'],
         65: ['current_electrolyse_percent', 'boost_remaining_min',
              'inversion_period_min', 'inversion_timer_min',
              'shutter_mode_electrolyse_percent',
-             'flow_switch', 'volet_actif', 'volet_force', 'polarity_phase_a', 'elx_fault_code'],
+             'flow_switch', 'flow_alarm', 'volet_actif', 'volet_force',
+             'polarity_phase_a', 'elx_fault_code'],
         83: ['ph_consigne', 'err_max', 'err_min'],
         69: ['redox_consigne'],
     }
@@ -833,25 +970,51 @@ class Dashboard(QWidget):
         self.inversion_timer_value.setText(_fmt(s.inversion_timer_min))
         self.ph_consigne_value.setText(_fmt(s.ph_consigne))
         self.redox_consigne_value.setText(_fmt(s.redox_consigne))
-        self.alarme_value.setText(_fmt(s.alarme))
-        self.warning_value.setText(_fmt(s.warning))
-        self.pompe_moins_value.setText("ON" if bool(s.pompe_moins_active) else "OFF")
-        self.regulation_active_value.setText("OUI" if bool(s.regulation_active) else "NON")
+        self.alarme_value.setText(alarm_elx_text(s.alarme))
+        self.alarme_value.setStyleSheet(
+            "color:#e74c3c; font-weight:bold;" if s.alarme != 0 else "color:#2ecc71;"
+        )
+        self.warning_value.setText(warning_text(s.warning))
+        self.warning_value.setStyleSheet(
+            "color:#e67e22; font-weight:bold;" if s.warning != 0 else "color:#2ecc71;"
+        )
+        self.alarm_rdx_value.setText(alarm_rdx_text(s.alarm_rdx))
+        self.alarm_rdx_value.setStyleSheet(
+            "color:#e74c3c; font-weight:bold;" if s.alarm_rdx != 0 else "color:#2ecc71;"
+        )
+        self.pompe_moins_value.setText("En cours" if bool(s.pompe_moins_active) else "Inactive")
+        self.regulation_active_value.setText("Active" if bool(s.regulation_active) else "Inhibée")
         self.regulation_active_value.setStyleSheet(
-            "color:orange;font-weight:bold;" if not s.regulation_active else ""
+            "color:#e67e22;font-weight:bold;" if not s.regulation_active else ""
         )
         self.pompes_forcees_value.setText("ON" if bool(s.pompes_forcees) else "OFF")
         self.inversion_period_value.setText(_fmt(s.inversion_period_min))
         self.shutter_mode_value.setText(_fmt(s.shutter_mode_electrolyse_percent) + " %")
-        self.elx_fault_value.setText(_fmt(s.elx_fault_code))
-        self.elx_fault_value.setStyleSheet(
-            "color:orange;font-weight:bold;" if s.elx_fault_code != 0 else ""
+        self.elx_fault_value.setText(
+            alarm_elx_text(s.elx_fault_code) if s.elx_fault_code != 0 else "Normal"
         )
-        self.boost_active_checkbox.setChecked(bool(s.boost_active))
-        self.flow_switch_checkbox.setChecked(bool(s.flow_switch))
-        self.volet_actif_checkbox.setChecked(bool(s.volet_actif))
-        self.volet_force_checkbox.setChecked(bool(s.volet_force))
-        self.polarity_phase_a_checkbox.setChecked(bool(s.polarity_phase_a))
+        self.elx_fault_value.setStyleSheet(
+            "color:#e74c3c; font-weight:bold;" if s.elx_fault_code != 0 else "color:#2ecc71;"
+        )
+        # Pastilles d'état système
+        self.boost_active_badge.set_state(bool(s.boost_active), "Actif", "Inactif")
+        self.flow_switch_badge.set_state(
+            bool(s.flow_switch), "Présent", "Absent", warn_when_off=True
+        )
+        self.flow_alarm_badge.set_state(
+            bool(s.flow_alarm), "ALARME", "Normal", error_when_on=True
+        )
+        self.volet_actif_badge.set_state(bool(s.volet_actif), "Actif", "Inactif")
+        self.volet_force_badge.set_state(bool(s.volet_force), "Forcé", "Auto")
+        self.regulation_active_badge.set_state(
+            bool(s.regulation_active), "Active", "Inhibée", warn_when_off=True
+        )
+        self.pompe_moins_badge.set_state(
+            bool(s.pompe_moins_active), "En cours", "Inactive"
+        )
+        self.polarity_widget.update_state(
+            bool(s.polarity_phase_a), s.inversion_timer_min, s.inversion_period_min
+        )
 
     def refresh(self):
         """Rafraîchissement complet : labels + graphiques (accès DB).
@@ -926,7 +1089,7 @@ class Dashboard(QWidget):
                 pump_state_y.append(1.0 if val else 0.0)
         self.pump_state_y = pump_state_y
         self.ph_pump_curve.setData(pump_x, pump_state_y, connect='finite')
-        self.ph_right_vb.setYRange(-0.05, 1.05, padding=0)
+        self.ph_right_vb.setYRange(0, 2, padding=0)
         self.electro_curve.setData(electro_x, electro_y, connect='finite')
         self.electro_setpoint_curve.setData(electro_cons_x, electro_cons_y, connect='finite')
         self.inversion_timer_curve.setData(inversion_timer_x, inversion_timer_y, connect='finite')
@@ -940,7 +1103,7 @@ class Dashboard(QWidget):
                 polarity_state_y.append(1.0 if val else 0.0)
         self.polarity_phase_state_y = polarity_state_y
         self.polarity_phase_curve.setData(polarity_phase_x, polarity_state_y, connect='finite')
-        self.cycle_right_vb.setYRange(-0.05, 1.05, padding=0)
+        self.cycle_right_vb.setYRange(0, 2, padding=0)
         self.boost_curve.setData(boost_x, boost_y, connect='finite')
 
         # Mettre à jour les courbes RE actives avec le dernier historique
@@ -997,3 +1160,47 @@ class Dashboard(QWidget):
                 self._refresh_reverse_series(lbl)
 
         # style not applicable (raw panel removed)
+
+    # ------------------------------------------------------------------
+    # Panneaux de commandes GATT
+    # ------------------------------------------------------------------
+
+    def _cmd_status_ok(self, msg: str) -> None:
+        self._cmd_status_label.setText(f"✓ {msg}")
+        self._cmd_status_label.setStyleSheet("color:#2ecc71; font-size:12px; padding:6px;")
+
+    def _cmd_send_ph(self) -> None:
+        v = self._cmd_ph_spin.value()
+        signals.ble_command.emit({'type': 'ph_setpoint', 'value': v})
+        self._cmd_status_ok(f"pH cible → {v:.2f}")
+
+    def _cmd_send_redox(self) -> None:
+        v = self._cmd_redox_spin.value()
+        signals.ble_command.emit({'type': 'redox_setpoint', 'value': v})
+        self._cmd_status_ok(f"Redox cible → {v} mV")
+
+    def _cmd_send_elx(self) -> None:
+        v = self._cmd_elx_spin.value()
+        signals.ble_command.emit({'type': 'elx_production', 'value': v})
+        self._cmd_status_ok(f"Production ELX → {v} %")
+
+    def _cmd_send_boost_start(self) -> None:
+        v = self._cmd_boost_spin.value()
+        signals.ble_command.emit({'type': 'boost_start', 'minutes': v})
+        self._cmd_status_ok(f"Boost démarré → {v} min")
+
+    def _cmd_send_boost_stop(self) -> None:
+        signals.ble_command.emit({'type': 'boost_stop'})
+        self._cmd_status_ok("Boost arrêté")
+
+    def _cmd_send_cover(self, state: bool) -> None:
+        # Reconstruit io_flags depuis l'état courant (préserve les bits connus)
+        s = self.state
+        a10 = 0x04  # bit2 (flow_switch) toujours 1
+        if getattr(s, 'volet_force', False):       a10 |= 0x08
+        if getattr(s, 'volet_actif', False):       a10 |= 0x10
+        if getattr(s, 'polarity_phase_a', False):  a10 |= 0x20
+        if getattr(s, 'flow_alarm', False):        a10 |= 0x40
+        signals.ble_command.emit({'type': 'cover_force', 'state': state, 'a10': a10})
+        action = "activé" if state else "désactivé"
+        self._cmd_status_ok(f"Forçage volet {action} (io_flags=0x{a10:02x})")
