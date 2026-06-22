@@ -303,3 +303,5 @@ class NetworkClient(threading.Thread):
             logger.warning("DB sync insert error: %s", e)
         if chunk_index + 1 == total_chunks:
             logger.info("DB sync complet pour table=%s", table)
+            from corelec.core.bus import bus
+            bus.db_sync_complete.emit(table)

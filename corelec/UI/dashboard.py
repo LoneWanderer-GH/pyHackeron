@@ -405,6 +405,7 @@ class Dashboard(QWidget):
         
         signals.connection.connect(self.update_connection)
         signals.state_updated.connect(self.refresh)
+        signals.db_sync_complete.connect(self._on_db_sync_complete)
         
         signals.log.connect(self.append_log)
         signals.reverse.connect(self.update_reverse)
@@ -510,6 +511,12 @@ class Dashboard(QWidget):
     def _on_sync_db(self) -> None:
         if self._network_client is not None:
             self._network_client.request_db_sync("raw_frames")
+
+    def _on_db_sync_complete(self, table: str) -> None:
+        """Appelé quand le dernier chunk DB sync est reçu → recharge graphiques et historique RE."""
+        logger.debug("DB sync complet (table=%s) → refresh dashboard", table)
+        self._load_reverse_history()
+        self.refresh()
 
     def _setup_crosshair(self, graph: pg.PlotWidget):
         vline = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=1))

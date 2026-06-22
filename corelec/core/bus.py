@@ -57,6 +57,8 @@ class AppBus:
         # UI / daemon → BLE
         self.retry_requested  = _Channel('retry_requested')
         self.cancel_requested = _Channel('cancel_requested')
+        # daemon → UI : fin d'un sync DB
+        self.db_sync_complete = _Channel('db_sync_complete')
 
 
 # Singleton global — importé par tous les modules consommateurs

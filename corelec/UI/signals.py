@@ -30,6 +30,7 @@ class QtBridge(QObject):
     reverse       = Signal(object)   # DecodedBase
     log           = Signal(str)
     error         = Signal(str)
+    db_sync_complete = Signal(str)   # table synchronisée
 
     def __init__(self, app_bus: AppBus = bus, parent=None) -> None:
         super().__init__(parent)
@@ -40,6 +41,7 @@ class QtBridge(QObject):
         app_bus.reverse.connect(self.reverse.emit)
         app_bus.log.connect(self.log.emit)
         app_bus.error.connect(self.error.emit)
+        app_bus.db_sync_complete.connect(self.db_sync_complete.emit)
 
     # Sens UI → BLE : proxy transparent vers les canaux du bus
     @property
