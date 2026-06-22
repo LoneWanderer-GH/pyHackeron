@@ -47,6 +47,7 @@ QTabWidget = QtWidgets.QTabWidget
 QTableWidget = QtWidgets.QTableWidget
 QTableWidgetItem = QtWidgets.QTableWidgetItem
 QTextEdit = QtWidgets.QTextEdit
+QLayout = QtWidgets.QLayout
 QVBoxLayout = QtWidgets.QVBoxLayout
 QWidget = QtWidgets.QWidget
 

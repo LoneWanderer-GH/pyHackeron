@@ -14,14 +14,18 @@ _STRUCTURAL_OFFSETS: frozenset[int] = frozenset({0, 1, 15, 16})
 class ReverseByteTable(QTableWidget):
     # emit when a checkbox is toggled: dict contains type, offset, label, checked
     itemToggled = Signal(dict)
-    interpretToggled = Signal(dict)  # {'type':int,'offsets':list,'interpretation':str,'checked':bool}
+    # {'type':int,'offsets':list,'interpretation':str,'checked':bool}
+    interpretToggled = Signal(dict)
 
-    def __init__(self, typ: int, parent=None):
+    def __init__(self, typ: int, parent: QWidget | None = None):
         super().__init__(17, 6, parent)
         self.typ = typ
-        self.setHorizontalHeaderLabels(['Plot', 'Offset', 'Int', 'Hex', 'Known', 'Name'])
-        self.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
-        self.horizontalHeader().setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self.setHorizontalHeaderLabels(
+            ['Plot', 'Offset', 'Int', 'Hex', 'Known', 'Name'])
+        self.setFont(QFontDatabase.systemFont(
+            QFontDatabase.SystemFont.FixedFont))
+        self.horizontalHeader().setFont(
+            QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_ctx)
         self.cellChanged.connect(self._on_cell_changed)
@@ -31,6 +35,7 @@ class ReverseByteTable(QTableWidget):
         self._interpret_checks: dict[tuple[tuple[int, ...], str], bool] = {}
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+
     def populate(self, parsed: Dict[str, Any]):
         # parsed contains raw_b0..raw_b16, _known_offsets, _offset_names
         raw = [parsed.get(f'raw_b{i}', 0) for i in range(17)]
@@ -46,8 +51,10 @@ class ReverseByteTable(QTableWidget):
             # Plot checkbox — désactivé pour les octets structurels
             item_chk = QTableWidgetItem('')
             if not is_structural:
-                item_chk.setFlags(item_chk.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-                item_chk.setCheckState(Qt.CheckState.Checked if i in self.checked_offsets else Qt.CheckState.Unchecked)
+                item_chk.setFlags(
+                    item_chk.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+                item_chk.setCheckState(
+                    Qt.CheckState.Checked if i in self.checked_offsets else Qt.CheckState.Unchecked)
             else:
                 item_chk.setFlags(Qt.ItemFlag.NoItemFlags)
             self.setItem(i, 0, item_chk)
@@ -104,17 +111,19 @@ class ReverseByteTable(QTableWidget):
                     if cell and bool(cell.flags() & Qt.ItemFlag.ItemIsSelectable):
                         cell.setSelected(True)
 
-    def _on_cell_changed(self, row, column):
+    def _on_cell_changed(self, row:int, column:int):
         if self._suppress_signal:
             return
         if column == 0:
             item = self.item(row, 0)
+            assert(item is not None)
             checked = item.checkState() == Qt.CheckState.Checked
             if checked:
                 self.checked_offsets.add(row)
             else:
                 self.checked_offsets.discard(row)
-            payload = {'type': self.typ, 'offset': row, 'label': f'{self.typ}[{row}]', 'checked': checked}
+            payload : dict[str, Any] = {'type': self.typ, 'offset': row,
+                       'label': f'{self.typ}[{row}]', 'checked': checked}
             self.itemToggled.emit(payload)
 
     def _on_ctx(self, pos):
@@ -123,7 +132,8 @@ class ReverseByteTable(QTableWidget):
         rows = [r for r in rows if r not in _STRUCTURAL_OFFSETS]
         if not rows:
             return
-        consecutive = all(rows[i] + 1 == rows[i + 1] for i in range(len(rows) - 1))
+        consecutive = all(rows[i] + 1 == rows[i + 1]
+                          for i in range(len(rows) - 1))
         unknown_only = all(r not in self.known_offsets for r in rows)
         menu = QMenu(self)
         if consecutive and unknown_only:
@@ -138,8 +148,10 @@ class ReverseByteTable(QTableWidget):
                 ]:
                     a = menu.addAction(label)
                     a.setCheckable(True)
-                    a.setChecked(self._interpret_checks.get((row_key, key), False))
-                    a.toggled.connect(lambda checked, k=key, r=list(rows): self._request_interp(r, k, checked))
+                    a.setChecked(self._interpret_checks.get(
+                        (row_key, key), False))
+                    a.toggled.connect(lambda checked, k=key, r=list(
+                        rows): self._request_interp(r, k, checked))
             # Interprétations multi-octets : toute sélection consécutive
             for key, label in [
                 ('string',  'Interpreter comme chaîne ASCII'),
@@ -148,13 +160,15 @@ class ReverseByteTable(QTableWidget):
                 a = menu.addAction(label)
                 a.setCheckable(True)
                 a.setChecked(self._interpret_checks.get((row_key, key), False))
-                a.toggled.connect(lambda checked, k=key, r=list(rows): self._request_interp(r, k, checked))
+                a.toggled.connect(lambda checked, k=key, r=list(
+                    rows): self._request_interp(r, k, checked))
         if not menu.isEmpty():
             menu.exec(self.mapToGlobal(pos))
 
     def _request_interp(self, rows: List[int], kind: str, checked: bool):
         self._interpret_checks[(tuple(rows), kind)] = checked
-        self.interpretToggled.emit({'type': self.typ, 'offsets': rows, 'interpretation': kind, 'checked': checked})
+        self.interpretToggled.emit(
+            {'type': self.typ, 'offsets': rows, 'interpretation': kind, 'checked': checked})
 
     def set_checked(self, offset: int, checked: bool):
         self._suppress_signal = True
@@ -164,7 +178,8 @@ class ReverseByteTable(QTableWidget):
             self.checked_offsets.discard(offset)
         item = self.item(offset, 0)
         if item:
-            item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+            item.setCheckState(
+                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self._suppress_signal = False
 
     def set_interpret_checked(self, offsets: List[int], kind: str, checked: bool):
@@ -172,7 +187,8 @@ class ReverseByteTable(QTableWidget):
 
 
 class ReversePanel(QWidget):
-    addSeries = Signal(dict)  # {'label':..., 'type':..., 'offsets':..., 'color':...}
+    # {'label':..., 'type':..., 'offsets':..., 'color':...}
+    addSeries = Signal(dict)
     removeSeries = Signal(str)  # label
 
     def __init__(self, typ: int, parent=None):
@@ -198,22 +214,25 @@ class ReversePanel(QWidget):
 
     def update_from_parsed(self, parsed: Dict[str, Any]):
         # parsed: dict from ctypes_frames
-        pretty = ', '.join(f"{k}={v}" for k, v in parsed.items() if not k.startswith('raw_b'))
+        pretty = ', '.join(
+            f"{k}={v}" for k, v in parsed.items() if not k.startswith('raw_b'))
         self.raw_text.setText(pretty)
         self.table.populate(parsed)
 
-    def _on_item_toggled(self, payload: dict):
+    def _on_item_toggled(self, payload: dict[str, Any]):
         # forward as addSeries/removeSeries
         if payload['checked']:
-            self.addSeries.emit({'label': payload['label'], 'type': payload['type'], 'offsets': [payload['offset']]})
+            self.addSeries.emit(
+                {'label': payload['label'], 'type': payload['type'], 'offsets': [payload['offset']]})
         else:
             self.removeSeries.emit(payload['label'])
 
-    def _on_interpret_requested(self, info: dict):
+    def _on_interpret_requested(self, info: dict[str, Any]):
         # simply emit as addSeries for now, label includes interp
         label = f"{info['type']}[{info['offsets'][0]}-{info['offsets'][-1]}] {info['interpretation']}"
         if info.get('checked', False):
-            self.addSeries.emit({'label': label, 'type': info['type'], 'offsets': info['offsets'], 'interpretation': info['interpretation']})
+            self.addSeries.emit(
+                {'label': label, 'type': info['type'], 'offsets': info['offsets'], 'interpretation': info['interpretation']})
         else:
             self.removeSeries.emit(label)
 
@@ -221,7 +240,7 @@ class ReversePanel(QWidget):
 class GraphSelectionPanel(QWidget):
     removeRequested = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.layout = QVBoxLayout()
         self.list = QListWidget()

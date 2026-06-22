@@ -1,5 +1,7 @@
 # decoder.py
 
+from typing import Callable
+
 from corelec.BLE.frame import Frame
 from corelec.BLE.types import Decoded65, Decoded69, Decoded77, Decoded83, DecodedBase
 from corelec.ReverseEngineering.ctypes_frames import (
@@ -12,7 +14,7 @@ class Decoder:
     """Décode une Frame BLE en Decoded* en déléguant aux ctypes_frames."""
 
     def decode(self, frame: Frame) -> DecodedBase:
-        dispatch = {77: self._77, 83: self._83, 65: self._65, 69: self._69}
+        dispatch :dict[int, Callable[[bytearray], DecodedBase]] = {77: self._77, 83: self._83, 65: self._65, 69: self._69}
         handler = dispatch.get(frame.type)
         if handler:
             return handler(frame.raw)

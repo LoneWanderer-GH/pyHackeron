@@ -71,11 +71,13 @@ typedef struct {
     uint8_t alarm_rdx;
     uint8_t pompe_moins_active;
     uint8_t regulation_active;
+    uint8_t config_capteur_sel_actif;  /* frame 77 : capteur SEL activé (raw[13] bit 3) */
     uint8_t pompes_forcees;
     uint8_t boost_active;
     uint8_t flow_switch;
     uint8_t volet_actif;
     uint8_t volet_force;
+    uint8_t elx_fault_code;           /* frame 65 : 0=OK 7=défaut flux 3=transitoire (raw[12]) */
 } corelec_decoded_frame_t;
 
 typedef struct {

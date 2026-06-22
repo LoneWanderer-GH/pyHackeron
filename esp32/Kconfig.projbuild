@@ -1,0 +1,33 @@
+menu "Corelec configuration"
+
+    config CORELEC_WIFI_SSID
+        string "WiFi SSID"
+        default "mon_ssid"
+        help
+            SSID du réseau WiFi auquel l'ESP32 se connecte.
+
+    config CORELEC_WIFI_PASSWORD
+        string "WiFi password"
+        default ""
+        help
+            Mot de passe du réseau WiFi.
+
+    config CORELEC_MQTT_BROKER_URL
+        string "MQTT broker URL"
+        default "mqtt://192.168.1.1"
+        help
+            URL du broker MQTT, ex. mqtt://192.168.1.100:1883
+
+    config CORELEC_BLE_DEVICE_ADDR
+        string "BLE device MAC address"
+        default "AA:BB:CC:DD:EE:FF"
+        help
+            Adresse MAC BLE du régulateur Corelec (format XX:XX:XX:XX:XX:XX).
+
+    config CORELEC_BLE_ADDR_TYPE_RANDOM
+        bool "BLE address type is random (vs public)"
+        default n
+        help
+            Cocher si l'adresse BLE de l'appareil est de type aléatoire.
+
+endmenu

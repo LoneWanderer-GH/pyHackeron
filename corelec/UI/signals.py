@@ -32,7 +32,7 @@ class QtBridge(QObject):
     error         = Signal(str)
     db_sync_complete = Signal(str)   # table synchronisée
 
-    def __init__(self, app_bus: AppBus = bus, parent=None) -> None:
+    def __init__(self, app_bus: AppBus = bus, parent:QObject|None=None) -> None:
         super().__init__(parent)
         self._bus = app_bus
         # bus pur-Python → Qt signal

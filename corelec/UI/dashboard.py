@@ -406,7 +406,7 @@ class Dashboard(QWidget):
         self.timer.start()
         
         signals.connection.connect(self.update_connection)
-        signals.state_updated.connect(self.refresh)
+        signals.state_updated.connect(self._refresh_labels)  # rapide : pas de DB
         signals.db_sync_complete.connect(self._on_db_sync_complete)
         
         signals.log.connect(self.append_log)
@@ -530,6 +530,16 @@ class Dashboard(QWidget):
             t = pg.TextItem('', anchor=(0,1))
             graph.addItem(t)
             texts.append((s, t))
+
+        # Cacher la vline et les labels quand la souris quitte ce widget
+        # (sinon la ligne reste affichée quand on passe sur un autre graphe)
+        _orig_leave = graph.leaveEvent
+        def _leave(event, _v=vline, _ts=texts, _orig=_orig_leave):
+            _v.setVisible(False)
+            for _, ti in _ts:
+                ti.setText('')
+            _orig(event)
+        graph.leaveEvent = _leave
 
         cb = functools.partial(self._on_mouse_moved, graph, vline, texts)
         # SignalProxy : limite à 60 événements/s pour ne pas saturer le thread Qt
@@ -715,79 +725,76 @@ class Dashboard(QWidget):
         self._remove_reverse_series(label)
 
     # ------------------------------------------------------------------
-    # Helper : décodage de l’historique depuis raw_frames
+    # Helper : historique des trames décodées
     # ------------------------------------------------------------------
 
-    def _decode_frames_history(self, frame_type: int, limit: int) -> dict:
-        """Charge les dernières `limit` trames du type indiqué et retourne
-        un dict {field: [(ts_iso, float_value), ...]} en ordre chronologique.
-        Seuls les champs numériques connus (non raw_bN, non internes) sont inclus.
-        """
-        _parsers = {77: CFrame77, 83: CFrame83, 65: CFrame65, 69: CFrame69}
-        parser = _parsers.get(frame_type)
-        if parser is None:
-            return {}
-        rows = self.database.load_raw_frames_by_type(frame_type, limit)
-        result: dict[str, list] = {}
-        for ts, hex_str in rows:
-            try:
-                raw = bytearray.fromhex(hex_str)
-                d = parser.from_bytes(raw).as_dict()
-            except Exception:
-                continue
-            for field, value in d.items():
-                if field.startswith('_') or field.startswith('raw_') or field == 'type':
-                    continue
-                if value is None:
-                    continue
-                if isinstance(value, bool):
-                    fval = 1.0 if value else 0.0
-                elif isinstance(value, (int, float)):
-                    fval = float(value)
-                else:
-                    continue
-                result.setdefault(field, []).append((ts, fval))
-        return result
+    # Champs utiles par type de trame (= colonnes lues dans decoded_frames)
+    _DECODED_FIELDS: dict[int, list[str]] = {
+        77: ['ph', 'redox', 'temp', 'sel', 'alarme', 'warning',
+             'regulation_active', 'pompe_moins_active', 'pompes_forcees',
+             'config_capteur_sel_actif'],
+        65: ['current_electrolyse_percent', 'boost_remaining_min',
+             'inversion_period_min', 'inversion_timer_min',
+             'shutter_mode_electrolyse_percent',
+             'flow_switch', 'volet_actif', 'volet_force', 'elx_fault_code'],
+        83: ['ph_consigne', 'err_max', 'err_min'],
+        69: ['redox_consigne'],
+    }
 
-    def refresh(self):
-        
+    def _decode_frames_history(self, frame_type: int, limit: int) -> dict:
+        """Lit les valeurs décodées depuis decoded_frames (via json_extract SQL).
+        Aucun décodage ctypes côté Python — les trames sont pré-décodées à la
+        réception (store_frame) ou au premier démarrage (backfill one-shot).
+        """
+        fields = self._DECODED_FIELDS.get(frame_type)
+        if not fields:
+            return {}
+        return self.database.load_decoded_frames_by_type(frame_type, fields, limit)
+
+    def _refresh_labels(self):
+        """Mise à jour rapide des labels/checkboxes uniquement — sans accès DB.
+        Appelé à chaque trame BLE reçue (via state_updated).
+        """
         s: RegulatorState = self.state
-        
-        def format_value(value: int | float | None) -> str:
-            return "-" if value is None else str(value)
-        
-        self.ph_value.setText(format_value(s.ph))
-        self.redox_value.setText(format_value(s.redox))
-        self.temp_value.setText(format_value(s.temp))
-        self.sel_value.setText(format_value(s.sel))
-        self.electro_value.setText(format_value(s.current_electrolyse_percent) + " %")
-        self.boost_remaining_value.setText(format_value(s.boost_remaining_time_min))
-        self.inversion_timer_value.setText(format_value(s.inversion_timer_min))
-        self.ph_consigne_value.setText(format_value(s.ph_consigne))
-        self.redox_consigne_value.setText(format_value(s.redox_consigne))
-        self.alarme_value.setText(format_value(s.alarme))
-        self.warning_value.setText(format_value(s.warning))
+
+        def _fmt(v) -> str:
+            return "-" if v is None else str(v)
+
+        self.ph_value.setText(_fmt(s.ph))
+        self.redox_value.setText(_fmt(s.redox))
+        self.temp_value.setText(_fmt(s.temp))
+        self.sel_value.setText(_fmt(s.sel))
+        self.electro_value.setText(_fmt(s.current_electrolyse_percent) + " %")
+        self.boost_remaining_value.setText(_fmt(s.boost_remaining_time_min))
+        self.inversion_timer_value.setText(_fmt(s.inversion_timer_min))
+        self.ph_consigne_value.setText(_fmt(s.ph_consigne))
+        self.redox_consigne_value.setText(_fmt(s.redox_consigne))
+        self.alarme_value.setText(_fmt(s.alarme))
+        self.warning_value.setText(_fmt(s.warning))
         self.pompe_moins_value.setText("ON" if bool(s.pompe_moins_active) else "OFF")
         self.regulation_active_value.setText("OUI" if bool(s.regulation_active) else "NON")
-        if not s.regulation_active:
-            self.regulation_active_value.setStyleSheet("color:orange;font-weight:bold;")
-        else:
-            self.regulation_active_value.setStyleSheet("")
+        self.regulation_active_value.setStyleSheet(
+            "color:orange;font-weight:bold;" if not s.regulation_active else ""
+        )
         self.pompes_forcees_value.setText("ON" if bool(s.pompes_forcees) else "OFF")
-        self.inversion_period_value.setText(format_value(s.inversion_period_min))
-        self.shutter_mode_value.setText(format_value(s.shutter_mode_electrolyse_percent) + " %")
-        self.elx_fault_value.setText(format_value(s.elx_fault_code))
-        if s.elx_fault_code != 0:
-            self.elx_fault_value.setStyleSheet("color:orange;font-weight:bold;")
-        else:
-            self.elx_fault_value.setStyleSheet("")
-        
+        self.inversion_period_value.setText(_fmt(s.inversion_period_min))
+        self.shutter_mode_value.setText(_fmt(s.shutter_mode_electrolyse_percent) + " %")
+        self.elx_fault_value.setText(_fmt(s.elx_fault_code))
+        self.elx_fault_value.setStyleSheet(
+            "color:orange;font-weight:bold;" if s.elx_fault_code != 0 else ""
+        )
         self.boost_active_checkbox.setChecked(bool(s.boost_active))
         self.flow_switch_checkbox.setChecked(bool(s.flow_switch))
         self.volet_actif_checkbox.setChecked(bool(s.volet_actif))
         self.volet_force_checkbox.setChecked(bool(s.volet_force))
-        
-        # Historique des graphiques décodé depuis raw_frames
+
+    def refresh(self):
+        """Rafraîchissement complet : labels + graphiques (accès DB).
+        Appelé par le timer toutes les 2 s et après un DB sync.
+        Ne pas connecter à state_updated (trop fréquent).
+        """
+        self._refresh_labels()
+
         _h77 = self._decode_frames_history(77, 10000)
         _h83 = self._decode_frames_history(83, 10000)
         _h65 = self._decode_frames_history(65, 10000)

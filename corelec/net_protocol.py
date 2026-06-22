@@ -19,7 +19,6 @@ Compatibilité : Python 3.9+, pas de dépendances Qt.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
 from enum import IntEnum
 from typing import Any
 

@@ -54,18 +54,19 @@ package body Corelec.Decoder is
       end if;
       Out_D.Alarme := Frame.Raw (10);
       Out_D.Warning := Frame.Raw (11) and 16#0F#;
-      --Out_D.Alarm_Rdx := Interfaces.Unsigned_8'Shift_Right (Frame.Raw (11), 4);
       declare
          use type Corelec.Types.U8;
-         tmp : Interfaces.Unsigned_8 := 0 ;
+         tmp : Interfaces.Unsigned_8 := 0;
       begin
-         tmp := Interfaces.Shift_Right (Interfaces.Unsigned_8(Frame.Raw (11)), Natural(4));
-         Out_D.Alarm_Rdx := U8(tmp);
+         tmp := Interfaces.Shift_Right (Interfaces.Unsigned_8 (Frame.Raw (11)), Natural (4));
+         Out_D.Alarm_Rdx := U8 (tmp);
       end;
-
+      --  byte 12 : pump_flags
       Out_D.Pompe_Moins_Active := (if (Frame.Raw (12) and 16#40#) /= 0 then 1 else 0);
-      Out_D.Regulation_Active := (if (Frame.Raw (12) and 16#20#) /= 0 then 1 else 0);
-      Out_D.Pompes_Forcees := (if (Frame.Raw (13) and 16#80#) /= 0 then 1 else 0);
+      Out_D.Regulation_Active  := (if (Frame.Raw (12) and 16#20#) /= 0 then 1 else 0);
+      --  byte 13 : sensor_config_flags
+      Out_D.Config_Capteur_Sel_Actif := (if (Frame.Raw (13) and 16#08#) /= 0 then 1 else 0);
+      Out_D.Pompes_Forcees           := (if (Frame.Raw (13) and 16#80#) /= 0 then 1 else 0);
    end Decode_77;
 
    procedure Decode_83
@@ -97,24 +98,36 @@ package body Corelec.Decoder is
       Out_D : in out Corelec.Types.Decoded_Frame) is
       use type Interfaces.C.double;
       use type Interfaces.C.int;
-      Boost_Remaining_Min : constant Corelec.Types.I32 := Corelec.Types.I32 (Frame.Raw (4));
-      Inversion_Period_Min : constant Corelec.Types.I32 := Corelec.Types.I32 (Frame.Raw (6));
+      --  Ces trois champs sont en uint16 big-endian (vérifié sur données réelles :
+      --  boost 6 h = 360 min = 0x0168 → raw(3)=0x01, raw(4)=0x68)
+      Boost_Remaining_Min  : constant Corelec.Types.I32 := U16 (Frame.Raw (3), Frame.Raw (4));
+      Inversion_Period_Min : constant Corelec.Types.I32 := U16 (Frame.Raw (5), Frame.Raw (6));
+      Inversion_Timer_Min  : constant Corelec.Types.I32 := U16 (Frame.Raw (7), Frame.Raw (8));
    begin
       Out_D.Kind := Corelec.Types.Kind_65;
+      --  byte 2
+      Out_D.Has_Current_Electrolyse_Percent := 1;
+      Out_D.Current_Electrolyse_Percent := Corelec.Types.I32 (Frame.Raw (2));
+      --  bytes 3-4 : boost (uint16 BE)
       Out_D.Boost_Active := (if Boost_Remaining_Min > 0 then 1 else 0);
       Out_D.Has_Boost_Remaining_Min := 1;
       Out_D.Boost_Remaining_Min := Boost_Remaining_Min;
-      Out_D.Has_Current_Electrolyse_Percent := 1;
-      Out_D.Current_Electrolyse_Percent := Corelec.Types.I32 (Frame.Raw (2));
+      --  bytes 5-6 : période d'inversion (uint16 BE)
       Out_D.Has_Inversion_Period_Min := 1;
       Out_D.Inversion_Period_Min := Inversion_Period_Min;
+      --  bytes 7-8 : compteur d'inversion courant (uint16 BE)
+      Out_D.Has_Inversion_Timer_Min := 1;
+      Out_D.Inversion_Timer_Min := Inversion_Timer_Min;
+      --  byte 9
       Out_D.Has_Shutter_Mode_Electrolyse := 1;
       Out_D.Shutter_Mode_Electrolyse_Percent := Corelec.Types.I32 (Frame.Raw (9));
-      Out_D.Flow_Switch := (if (Frame.Raw (10) and 16#04#) /= 0 then 1 else 0);
+      --  byte 10 : io_flags
+      --  flow_switch=True quand bits 5+6 (0x60) sont à 0 (flux OK, pas d'alarme)
+      Out_D.Flow_Switch := (if (Frame.Raw (10) and 16#60#) = 0 then 1 else 0);
       Out_D.Volet_Actif := (if (Frame.Raw (10) and 16#10#) /= 0 then 1 else 0);
       Out_D.Volet_Force := (if (Frame.Raw (10) and 16#08#) /= 0 then 1 else 0);
-      Out_D.Has_Inversion_Timer_Min := 1;
-      Out_D.Inversion_Timer_Min := Corelec.Types.I32 (Frame.Raw (8));
+      --  byte 12 : code d'arrêt électrolyseur (0=OK, 7=défaut flux, 3=transitoire)
+      Out_D.Elx_Fault_Code := Frame.Raw (12);
    end Decode_65;
 
    procedure Decode_Frame

@@ -57,16 +57,20 @@ package Corelec.Types is
       Shutter_Mode_Electrolyse_Percent   : I32 := 0;
       Has_Inversion_Timer_Min            : U8 := 0;
       Inversion_Timer_Min                : I32 := 0;
+      Has_Cycle_B_Min                    : U8 := 0;   --  réservé (présent dans corelec_ada.h)
+      Cycle_B_Min                        : I32 := 0;
       Alarme                             : U8 := 0;
       Warning                            : U8 := 0;
       Alarm_Rdx                          : U8 := 0;
       Pompe_Moins_Active                 : U8 := 0;
       Regulation_Active                   : U8 := 0;
+      Config_Capteur_Sel_Actif           : U8 := 0;  --  frame 77 : raw(13) bit 3
       Pompes_Forcees                     : U8 := 0;
       Boost_Active                       : U8 := 0;
       Flow_Switch                        : U8 := 0;
       Volet_Actif                        : U8 := 0;
       Volet_Force                        : U8 := 0;
+      Elx_Fault_Code                     : U8 := 0;  --  frame 65 : raw(12), 0=OK 7=défaut flux 3=transitoire
    end record
    with Convention => C;
 
@@ -75,12 +79,13 @@ package Corelec.Types is
      with Convention => C;
 
    subtype Message_Index is Natural range 0 .. 127;
-   type Message_Buffer is array (Message_Index) of Interfaces.C.char
+   --  Character est layout-compatible avec C char ; Convention => C préserve la représentation.
+   type Message_Buffer is array (Message_Index) of Character
      with Convention => C;
 
    type Connection_Info is record
       State          : Connection_State := State_Disconnected;
-      Message        : Message_Buffer := (others => Interfaces.C.nul);
+      Message        : Message_Buffer := (others => Character'Val (0));
       Elapsed        : Interfaces.C.unsigned := 0;
       Remaining      : Interfaces.C.unsigned := 0;
       Timeout        : Interfaces.C.unsigned := 0;

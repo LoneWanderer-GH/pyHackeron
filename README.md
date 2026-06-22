@@ -60,6 +60,7 @@ corelec/
 ├── requirements_raspi3.txt   Pi3 avec UI Qt (via apt)
 └── requirements_windows.txt  Desktop (PyQt6 + pyzmq)
 ada/                          Bibliothèque Ada 2022 (logique métier, API C)
+esp32/                        Firmware ESP32 — client BLE NimBLE + passerelle MQTT
 ```
 
 ---
@@ -269,14 +270,43 @@ utilisable directement comme entités MQTT JSON dans HA.
 Bibliothèque Ada 2022 portant la logique métier (machine d'état BLE, décodeur, API C).  
 Conçue pour être compilée en bibliothèque statique et liée depuis n'importe quel backend BLE (BlueZ, BTstack, NimBLE, WinRT).
 
+Le backend est sélectionné par la **variable scénario GPR** `CORELEC_BLE_BACKEND` :
+
+| Valeur | Plateforme | Compilateur |
+|---|---|---|
+| `winrt` | Windows 11 natif | GNAT (msvc-compat) |
+| `btstack_winusb` | Windows (USB dongle) | MinGW-w64 |
+| `btstack_posix` | Linux x86_64 | `x86_64-linux-gnu-gcc` |
+| `nimble_posix` | Linux / cross ARM | `arm-none-eabi-gcc` |
+| `bluez` | Linux (BlueZ) | `x86_64-linux-gnu-gcc` |
+
 ```powershell
-cd src/Ada
-alr build            # avec Alire
-# ou
-gprbuild -P corelec_ada.gpr
+cd ada
+alr build -- -XCORELEC_BLE_BACKEND=winrt
+# Télécharger les sources vendeur BTstack / NimBLE si nécessaire :
+# .\backends\fetch_vendors.ps1
 ```
 
-Voir [src/Ada/README.md](src/Ada/README.md) pour les options de cross-compilation (ARM, Linux x86_64).
+Voir [ada/README.md](ada/README.md) pour les détails de cross-compilation.
+
+---
+
+## Firmware ESP32
+
+Client BLE NimBLE autonome avec passerelle MQTT — ne nécessite ni Raspberry Pi ni PC.  
+Décode les trames du régulateur et publie chaque valeur sur un broker MQTT (retained, QoS 0).
+
+```bash
+cd esp32
+idf.py menuconfig   # SSID WiFi, MQTT broker, adresse BLE
+idf.py build
+idf.py -p COMx flash monitor
+```
+
+Topics publiés : `corelec/ph`, `corelec/redox`, `corelec/temp`, `corelec/sel`,  
+`corelec/alarme`, `corelec/flow_switch`, `corelec/boost_remaining_min`, etc.
+
+Voir [esp32/README.md](esp32/README.md) pour la liste complète des topics et la procédure de flash.
 
 ---
 

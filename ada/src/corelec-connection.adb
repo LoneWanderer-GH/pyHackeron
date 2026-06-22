@@ -6,12 +6,11 @@ package body Corelec.Connection is
    procedure Free is new Ada.Unchecked_Deallocation (Connection_Manager, Connection_Manager_Access);
 
    procedure Set_Message (Target : out Corelec.Types.Message_Buffer; Value : String) is
-      use type Interfaces.C.size_t;
       Last : constant Natural := Natural'Min (Value'Length, Target'Length - 1);
    begin
-      Target := (others => Interfaces.C.nul);
+      Target := (others => Character'Val (0));
       for I in 0 .. Last - 1 loop
-         Target (I) := Interfaces.C.char'Val (Character'Pos (Value (Value'First + I)));
+         Target (I) := Value (Value'First + I);
       end loop;
    end Set_Message;
 

@@ -1,16 +1,17 @@
 with Corelec.Types;
 with Interfaces.C;
+with System;
 
 package Corelec.BLE is
    pragma Preelaborate;
 
+   --  Doit correspondre exactement à corelec_ble_backend_kind_t dans corelec_ble_backend.h
    type Backend_Kind is
-     (Backend_None,
-      Backend_Portable_C,
-      Backend_BlueZ_C,
-      Backend_WinRT_C,
-      Backend_NimBLE_C,
-      Backend_BTstack_C)
+     (Backend_None,      --  0 CORELEC_BLE_BACKEND_NONE
+      Backend_BlueZ_C,   --  1 CORELEC_BLE_BACKEND_BLUEZ
+      Backend_WinRT_C,   --  2 CORELEC_BLE_BACKEND_WINRT
+      Backend_NimBLE_C,  --  3 CORELEC_BLE_BACKEND_NIMBLE
+      Backend_BTstack_C) --  4 CORELEC_BLE_BACKEND_BTSTACK
      with Convention => C;
 
    type BLE_Event_Kind is
@@ -54,5 +55,6 @@ package Corelec.BLE is
       Timeout_Sec : Interfaces.C.unsigned := 120;
       On_Status   : Status_Callback := null;
       On_Notify   : Notification_Callback := null;
+      C_Handle    : System.Address := System.Null_Address;  --  corelec_ble_backend_t *
    end record;
 end Corelec.BLE;

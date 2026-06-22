@@ -15,18 +15,16 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import threading
 import time
-from dataclasses import asdict
 from datetime import datetime
-from pathlib import Path
-from typing import Callable
+from typing import Any
 
 import zmq
 
+from corelec.UI.signals import QtBridge
 from corelec.net_protocol import (
-    Topic, ConnStatus, decode,
+    Topic, decode,
     DEFAULT_PUB_PORT, DEFAULT_CMD_PORT,
 )
 from corelec.BLE.types import (
@@ -75,13 +73,13 @@ class NetworkClient(threading.Thread):
         # ZMQ contexts (séparés pour SUB et PUSH)
         self._ctx_sub = zmq.Context()
         self._ctx_cmd = zmq.Context()
-        self._sock_cmd: zmq.Socket | None = None
+        self._sock_cmd: zmq.SyncSocket | None = None
 
     # ------------------------------------------------------------------
     # Envoi de commandes
     # ------------------------------------------------------------------
 
-    def send_cmd(self, topic: str, payload: dict | None = None) -> None:
+    def send_cmd(self, topic: str, payload: dict[str, Any] | None = None) -> None:
         """Envoie une commande au daemon (fire-and-forget)."""
         if self._sock_cmd is None:
             self._sock_cmd = self._ctx_cmd.socket(zmq.PUSH)
@@ -198,22 +196,22 @@ class NetworkClient(threading.Thread):
     # Dispatch des messages reçus → signaux Qt
     # ------------------------------------------------------------------
 
-    def _dispatch(self, topic: str, payload: dict, signals) -> None:
+    def _dispatch(self, topic: str, payload: dict[str, Any], signals : QtBridge) -> None:
         try:
             if topic == Topic.CONNECTION:
                 self._handle_connection(payload, signals)
             elif topic == Topic.STATE:
                 self._handle_state(payload, signals)
             elif topic == Topic.VALUE:
-                self._handle_value(payload)
+                self._handle_value(payload, signals)
             elif topic == Topic.FRAME_RAW:
                 self._handle_frame_raw(payload, signals)
             elif topic == Topic.DB_SYNC:
-                self._handle_db_sync(payload)
+                self._handle_db_sync(payload, signals)
         except Exception as e:
             logger.warning("Dispatch error [%s]: %s", topic, e)
 
-    def _handle_connection(self, p: dict, signals) -> None:
+    def _handle_connection(self, p: dict[str, Any], signals : QtBridge) -> None:
         status_name = p.get("status_name", "disconnected")
         m = p.get("metrics", {})
         metrics = ConnectionMetrics(
@@ -234,7 +232,7 @@ class NetworkClient(threading.Thread):
         )
         signals.connection.emit(info)
 
-    def _handle_state(self, p: dict, signals) -> None:
+    def _handle_state(self, p: dict[str, Any], signals : QtBridge) -> None:
         """Compat ascendante : anciens daemons qui publiaient encore Topic.STATE."""
         for key, value in p.items():
             if hasattr(self.state, key):
@@ -244,10 +242,10 @@ class NetworkClient(threading.Thread):
                     pass
         signals.state_updated.emit()
 
-    def _handle_value(self, p: dict) -> None:
+    def _handle_value(self, p: dict[str, Any], signals : QtBridge) -> None:
         """No-op : les graphiques utilisent désormais raw_frames pour l’historique."""
 
-    def _handle_frame_raw(self, p: dict, signals) -> None:
+    def _handle_frame_raw(self, p: dict[str, Any], signals : QtBridge) -> None:
         frame_type = p.get("frame_type", 0)
         hex_str = p.get("hex", "")
         ts = p.get("ts", datetime.now().isoformat())
@@ -278,7 +276,7 @@ class NetworkClient(threading.Thread):
         # Émettre le DecodedBase pour la fenêtre RE (type + raw suffisent)
         signals.reverse.emit(DecodedBase(type=frame_type, raw=raw))
 
-    def _handle_db_sync(self, p: dict) -> None:
+    def _handle_db_sync(self, p: dict[str, Any], signals : QtBridge) -> None:
         """Insère les rows reçues dans la DB locale (reconstruction pour dev)."""
         table = p.get("table", "decoded_values")
         rows = p.get("rows", [])

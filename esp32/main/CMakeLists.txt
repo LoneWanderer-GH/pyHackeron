@@ -1,0 +1,18 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "corelec_protocol.c"
+        "corelec_decoder.c"
+        "corelec_ble.c"
+        "corelec_mqtt.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_event
+        mqtt
+        bt
+        esp_timer
+        esp_netif
+)

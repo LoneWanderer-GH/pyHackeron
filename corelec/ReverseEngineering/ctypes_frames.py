@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import re
-from ctypes import BigEndianStructure, Structure, c_int8, c_uint8, c_uint16
+from ctypes import BigEndianStructure, Structure, c_uint8, c_uint16
 from typing import Any, ByteString, Dict, List, Tuple
 
 # ---------------------------------------------------------------------------
@@ -19,6 +19,7 @@ def _be_layout(be_cls: type) -> Tuple[Dict[int, str], List[int]]:
       - known_offsets: sorted list of offsets whose field name is not 'bN'
     Result is cached per class.
     """
+    assert(be_cls is not None and issubclass(be_cls, BigEndianStructure))
     if be_cls in _layout_cache:
         return _layout_cache[be_cls]
 

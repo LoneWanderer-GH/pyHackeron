@@ -1,0 +1,24 @@
+# ── Bluetooth / NimBLE ──────────────────────────────────────────────────────
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_CONTROLLER_MODE_BLE_ONLY=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_LOG_LEVEL=1
+
+# ── WiFi ─────────────────────────────────────────────────────────────────────
+CONFIG_ESP_WIFI_ENABLED=y
+
+# ── MQTT ─────────────────────────────────────────────────────────────────────
+CONFIG_MQTT_PROTOCOL_311=y
+CONFIG_MQTT_TRANSPORT_SSL=n
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# ── Stack sizes ───────────────────────────────────────────────────────────────
+# NimBLE host task stack (increase if stack overflow observed)
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=5120
