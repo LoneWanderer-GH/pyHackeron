@@ -46,6 +46,8 @@ QPushButton = QtWidgets.QPushButton
 QTabWidget = QtWidgets.QTabWidget
 QTableWidget = QtWidgets.QTableWidget
 QTableWidgetItem = QtWidgets.QTableWidgetItem
+QTreeWidget = QtWidgets.QTreeWidget
+QTreeWidgetItem = QtWidgets.QTreeWidgetItem
 QTextEdit = QtWidgets.QTextEdit
 QLayout = QtWidgets.QLayout
 QVBoxLayout = QtWidgets.QVBoxLayout
@@ -109,6 +111,24 @@ def _patch_enums() -> None:  # noqa: C901
         class _SM:
             ExtendedSelection = QTableWidget.ExtendedSelection  # type: ignore[attr-defined]
         QTableWidget.SelectionMode = _SM  # type: ignore[attr-defined]
+
+    # -- QTreeWidget.SelectionBehavior --
+    if not hasattr(QTreeWidget, "SelectionBehavior"):
+        class _SBT:
+            SelectRows = QTreeWidget.SelectRows  # type: ignore[attr-defined]
+        QTreeWidget.SelectionBehavior = _SBT  # type: ignore[attr-defined]
+
+    # -- QTreeWidget.SelectionMode --
+    if not hasattr(QTreeWidget, "SelectionMode"):
+        class _SMT:
+            ExtendedSelection = QTreeWidget.ExtendedSelection  # type: ignore[attr-defined]
+        QTreeWidget.SelectionMode = _SMT  # type: ignore[attr-defined]
+
+    # -- Qt.ItemDataRole --
+    if not hasattr(Qt, "ItemDataRole"):
+        class _IDR:
+            UserRole = Qt.UserRole  # type: ignore[attr-defined]
+        Qt.ItemDataRole = _IDR  # type: ignore[attr-defined]
 
     # -- QFontDatabase.SystemFont --
     if not hasattr(QFontDatabase, "SystemFont"):

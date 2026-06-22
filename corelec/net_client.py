@@ -267,7 +267,7 @@ class NetworkClient(threading.Thread):
                 self.state.update(decoded_full)
                 signals.state_updated.emit()
             except Exception as e:
-                logger.debug("Décodage frame_raw: %s", e)
+                logger.warning("Décodage frame_raw type=%s: %s", frame.type, e)
         # Émettre le DecodedBase pour la fenêtre RE (type + raw suffisent)
         signals.reverse.emit(DecodedBase(type=frame_type, raw=raw))
 

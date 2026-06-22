@@ -68,6 +68,7 @@ class Decoded65(DecodedBase):
     flow_switch: bool
     volet_actif: bool
     volet_force: bool
+    polarity_phase_a: bool
     inversion_timer_min: int
     elx_fault_code: int = 0   # byte 12 : 0=OK, 7=arrêt défaut flux, 3=transitoire
 

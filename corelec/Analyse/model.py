@@ -46,7 +46,8 @@ class RegulatorState:
 
     volet_actif: bool = False
     volet_force: bool = False
-    
+    polarity_phase_a: bool = False
+
     flow_switch : bool = False
     # elx_fault_code : code d’arrêt de l’électrolyseur (trame 65 byte 12)
     # 0=normal, 7=arrêt défaut flux, 3=transitoire
@@ -86,6 +87,7 @@ class RegulatorState:
             self.flow_switch = decoded.flow_switch
             self.volet_actif = decoded.volet_actif
             self.volet_force = decoded.volet_force
+            self.polarity_phase_a = decoded.polarity_phase_a
             self.inversion_timer_min = decoded.inversion_timer_min
             self.elx_fault_code = decoded.elx_fault_code
             # self.raw_a10 = decoded.raw_field_a10

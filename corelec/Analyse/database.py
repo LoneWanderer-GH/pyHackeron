@@ -217,6 +217,21 @@ class Database:
             self.conn.commit()
         logger.info("Backfill terminé : %d lignes décodées", len(batch))
 
+    def force_redecode(self) -> int:
+        """Efface decoded_frames et re-décode tous les raw_frames depuis zéro.
+
+        Utile quand la logique de décodage change (nouveaux champs, corrections).
+        Retourne le nombre de lignes dans decoded_frames après re-décodage.
+        """
+        logger.info("force_redecode : suppression de decoded_frames…")
+        with self.lock:
+            self.conn.execute("DELETE FROM decoded_frames")
+            self.conn.commit()
+        self._backfill_decoded_frames()
+        cur = self.conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM decoded_frames")
+        return cur.fetchone()[0]
+
     def load_history(self, name: str, limit: int = 1000):
         """Retourne les `limit` entrées les plus récentes pour `name`, dédupliquées par timestamp.
 

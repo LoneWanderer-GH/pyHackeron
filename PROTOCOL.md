@@ -108,16 +108,19 @@ Peut être un identifiant de sous-type, version de firmware, ou adresse de canal
 
 ### Détail bits — octet 10 `io_flags`
 
-| Bit  | Masque | Nom           | Statut | Notes                                                                          |
-|------|--------|---------------|--------|--------------------------------------------------------------------------------|
-| 0    | `0x01` | ?             | ❓     |                                                                                |
-| 1    | `0x02` | ?             | ❓     |                                                                                |
-| 2    | `0x04` | ?             | ❓     | Toujours 1 dans les données observées                                          |
-| 3    | `0x08` | `volet_force` | ⚙️     | Hypothèse : volet en position forcée. Non vérifié expérimentalement            |
-| 4    | `0x10` | `volet_actif` | ⚙️     | Hypothèse : volet actif. Non vérifié expérimentalement                         |
-| 5    | `0x20` | `flow_alarm`  | ✅     | bits 5+6 simultanément à 1 = alarme défaut écoulement (+ `elx_fault_code`=7)  |
-| 6    | `0x40` | `flow_alarm`  | ✅     | (idem bit 5 — les deux passent ensemble)                                       |
-| 7    | `0x80` | ?             | ❓     |                                                                                |
+| Bit  | Masque | Nom             | Statut | Notes                                                                                              |
+|------|--------|-----------------|--------|----------------------------------------------------------------------------------------------------|
+| 0    | `0x01` | `polarity_a[0]` | ❓     | Actif pendant la phase de polarité A ; 0 après remise à zéro du compteur d'inversion              |
+| 1    | `0x02` | `polarity_a[1]` | ❓     | Idem bit 0 — les bits 0+1 forment probablement un champ 2 bits : `0b11`=phase A, `0b00`=phase B   |
+| 2    | `0x04` | `polarity_b`    | ❓     | Actif après remise à zéro du compteur (phase B). Hypothèse « toujours 1 » INFIRMÉE                |
+| 3    | `0x08` | `volet_force`   | ⚙️     | Hypothèse : volet en position forcée. Non vérifié expérimentalement                                |
+| 4    | `0x10` | `volet_actif`   | ⚙️     | Hypothèse : volet actif. Non vérifié expérimentalement                                             |
+| 5    | `0x20` | `phase_a_flag`  | ❓     | Actif pendant la phase A (avant inversion) seul, sans bit 6. Distinct de l'alarme flux (voir 5+6) |
+| 5+6  | `0x60` | `flow_alarm`    | ✅     | bits 5 ET 6 simultanément à 1 = alarme défaut écoulement (+ `elx_fault_code`=7)                   |
+| 6    | `0x40` | `flow_alarm`    | ✅     | (idem bit 5 — les deux passent ensemble pour alarme flux)                                          |
+| 7    | `0x80` | ?               | ❓     |                                                                                                    |
+
+**Observation clé** (2026-06-22) : lors de la remise à zéro du compteur `inversion_timer_min`, `io_flags` est passé de `0x23` (35) à `0x04` (4). Détail : `0x23` = bits 0,1,5 actifs (phase A) ; `0x04` = bit 2 actif (phase B / cycle suivant). La logique `flow_switch = (io_flags & 0x60) == 0` reste valide car elle requiert les DEUX bits 5+6 simultanément.
 
 ---
 

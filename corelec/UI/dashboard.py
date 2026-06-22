@@ -1,6 +1,7 @@
 # dashboard.py
 from __future__ import annotations
 import struct
+import threading
 from collections import deque
 from datetime import datetime
 import logging
@@ -39,7 +40,7 @@ class Dashboard(QWidget):
         self._network_client = network_client
         
         self.state = state
-        self.database = database
+        self.database: Database = database
         self.re_bytes_history: dict[int, dict[int, deque[bytes]]] = {
                 65: {i: deque(maxlen=200) for i in range(17)},
                 77: {i: deque(maxlen=200) for i in range(17)},
@@ -87,9 +88,12 @@ class Dashboard(QWidget):
         self.sync_db_button = QPushButton("Sync DB")
         self.sync_db_button.setToolTip("Télécharger la base de données depuis le daemon réseau")
         self.sync_db_button.setVisible(False)  # affiché uniquement en mode réseau
+        self._redecode_button = QPushButton("Re-décoder DB")
+        self._redecode_button.setToolTip("Efface et re-décode tous les raw_frames → decoded_frames")
         self.retry_button.clicked.connect(lambda _: signals.retry_requested.emit())
         self.cancel_button.clicked.connect(lambda _: signals.cancel_requested.emit())
         self.sync_db_button.clicked.connect(self._on_sync_db)
+        self._redecode_button.clicked.connect(self._on_redecode_clicked)
 
         # Indicateur ZMQ (mode réseau uniquement)
         self.zmq_status_label = QLabel("")
@@ -104,6 +108,7 @@ class Dashboard(QWidget):
         top.addWidget(self.retry_button)
         top.addWidget(self.cancel_button)
         top.addWidget(self.sync_db_button)
+        top.addWidget(self._redecode_button)
         self.tabs = QTabWidget()
         
         dashboard_tab = QWidget()
@@ -135,11 +140,13 @@ class Dashboard(QWidget):
         self.flow_switch_checkbox = QCheckBox("Flow switch")
         self.volet_actif_checkbox = QCheckBox("Volet actif")
         self.volet_force_checkbox = QCheckBox("Volet forcé")
+        self.polarity_phase_a_checkbox = QCheckBox("Phase A (polarité)")
         for checkbox in [
                 self.boost_active_checkbox,
                 self.flow_switch_checkbox,
                 self.volet_actif_checkbox,
                 self.volet_force_checkbox,
+                self.polarity_phase_a_checkbox,
         ]:
             checkbox.setEnabled(False)
         
@@ -192,6 +199,7 @@ class Dashboard(QWidget):
         bool_layout.addWidget(self.flow_switch_checkbox)
         bool_layout.addWidget(self.volet_actif_checkbox)
         bool_layout.addWidget(self.volet_force_checkbox)
+        bool_layout.addWidget(self.polarity_phase_a_checkbox)
         bool_group.setLayout(bool_layout)
         
         dashboard_layout.addWidget(dashboard_info)
@@ -286,6 +294,28 @@ class Dashboard(QWidget):
         self.cycle_graph.setLabel('left', 'Min')
         self.inversion_timer_curve = self.cycle_graph.plot(pen=pg.mkPen(color='cyan', width=2), name='Compteur (min)')
         self.inversion_period_curve = self.cycle_graph.plot(pen=pg.mkPen(color='lime', width=2), name='Période conf. (min)')
+        # axe droit binaire pour la phase de polarité (A=1 / B=0)
+        _cpw = self.cycle_graph.getPlotItem()
+        self.cycle_right_vb = pg.ViewBox()
+        _cpw.showAxis('right')
+        _cpw.getAxis('right').setLabel('Phase A (1=A / 0=B)')
+        _cpw.getAxis('right').setPen(pg.mkPen(color=(180, 100, 255)))
+        _cpw.getAxis('right').setTicks([[(0.0, 'B'), (1.0, 'A')]])
+        _cpw.scene().addItem(self.cycle_right_vb)
+        _cpw.getAxis('right').linkToView(self.cycle_right_vb)
+        self.cycle_right_vb.setXLink(_cpw.getViewBox())
+
+        def _update_cycle_right_vb():
+            self.cycle_right_vb.setGeometry(_cpw.getViewBox().sceneBoundingRect())
+            self.cycle_right_vb.setYRange(-0.05, 1.05, padding=0)
+
+        _cpw.getViewBox().sigResized.connect(_update_cycle_right_vb)
+        _update_cycle_right_vb()
+        self.polarity_phase_curve = pg.PlotDataItem(
+            pen=pg.mkPen(color=(180, 100, 255), width=2),
+            name='Phase polarité (A=1/B=0)'
+        )
+        self.cycle_right_vb.addItem(self.polarity_phase_curve)
 
         self.boost_date_axis = pg.DateAxisItem(orientation='bottom')
         self.boost_graph: pg.PlotWidget = pg.PlotWidget(
@@ -316,6 +346,7 @@ class Dashboard(QWidget):
         self._plot_series[self.cycle_graph] = [
             {'x':'inversion_timer_x','y':'inversion_timer_y','color':'cyan','name':'Compteur (min)'},
             {'x':'inversion_period_x','y':'inversion_period_y','color':'lime','name':'Période conf. (min)'},
+            {'x':'polarity_phase_x','y':'polarity_phase_state_y','color':'#b464ff','name':'Phase A','binary':True},
         ]
         self._plot_series[self.boost_graph] = [
             {'x':'boost_x','y':'boost_y','color':'orange','name':'Boost restant (min)'},
@@ -514,21 +545,40 @@ class Dashboard(QWidget):
         if self._network_client is not None:
             self._network_client.request_db_sync("raw_frames")
 
+    def _on_redecode_clicked(self) -> None:
+        self._redecode_button.setEnabled(False)
+        self._redecode_button.setText("En cours…")
+        self._redecoding = True
+
+        def _worker() -> None:
+            try:
+                n = self.database.force_redecode()
+                logger.info("Re-décodage terminé : %d trames dans decoded_frames", n)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Re-décodage erreur : %s", e)
+            signals.db_sync_complete.emit("decoded_frames")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _on_db_sync_complete(self, table: str) -> None:
         """Appelé quand le dernier chunk DB sync est reçu → recharge graphiques et historique RE."""
         logger.debug("DB sync complet (table=%s) → refresh dashboard", table)
+        if getattr(self, '_redecoding', False):
+            self._redecoding = False
+            self._redecode_button.setEnabled(True)
+            self._redecode_button.setText("Re-décoder DB")
         self._load_reverse_history()
         self.refresh()
 
     def _setup_crosshair(self, graph: pg.PlotWidget):
         vline = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=1))
         vline.setVisible(False)  # caché tant que le curseur n'est pas dans la vue
-        graph.addItem(vline)
+        graph.addItem(vline, ignoreBounds=True)  # ne doit pas influencer l'autoRange
 
         texts = []
         for s in self._plot_series.get(graph, []):
             t = pg.TextItem('', anchor=(0,1))
-            graph.addItem(t)
+            graph.addItem(t, ignoreBounds=True)  # idem
             texts.append((s, t))
 
         # Cacher la vline et les labels quand la souris quitte ce widget
@@ -638,6 +688,7 @@ class Dashboard(QWidget):
         typ = meta['type']
         offsets = meta['offsets']
         kind = meta.get('interpretation')
+        bit = meta.get('bit')
 
         histories = [self.reverse_time_history[(typ, o)] for o in offsets if (typ, o) in self.reverse_time_history]
         if not histories:
@@ -653,18 +704,22 @@ class Dashboard(QWidget):
         ys: list[float] = []
         for idx in range(n):
             ts = histories[0][idx][0]
-            vals = [histories[j][idx][1] for j in range(len(histories))]
-            if kind:
+            if bit is not None:
+                # Série booléenne : isole le bit demandé de l'octet
+                y = float((int(histories[0][idx][1]) >> bit) & 1)
+            elif kind:
+                vals = [histories[j][idx][1] for j in range(len(histories))]
                 y = self._compute_interpret_value(vals, kind)
                 if y is None:
                     continue
             else:
-                y = float(vals[0])
+                y = float(histories[0][idx][1])
             xs.append(ts)
             ys.append(y)
         item.setData(xs, ys)
 
-    def _add_reverse_series(self, *, typ: int, offsets: list[int], label: str, interpretation: str | None = None):
+    def _add_reverse_series(self, *, typ: int, offsets: list[int], label: str,
+                             interpretation: str | None = None, bit: int | None = None):
         if label in self.reverse_series_items:
             return
 
@@ -675,6 +730,7 @@ class Dashboard(QWidget):
             'type': typ,
             'offsets': offsets,
             'interpretation': interpretation,
+            'bit': bit,
         }
         self.reverse_selected_panel.add_item(label)
         self._refresh_reverse_series(label)
@@ -698,6 +754,9 @@ class Dashboard(QWidget):
             if table is not None:
                 if meta.get('interpretation'):
                     table.set_interpret_checked(meta['offsets'], meta['interpretation'], False)
+                elif meta.get('bit') is not None:
+                    for o in meta['offsets']:
+                        table.set_checked_bit(o, meta['bit'], False)
                 else:
                     for o in meta['offsets']:
                         table.set_checked(o, False)
@@ -705,7 +764,12 @@ class Dashboard(QWidget):
     def _on_reverse_byte_toggled(self, payload: dict):
         label = payload['label']
         if payload.get('checked'):
-            self._add_reverse_series(typ=payload['type'], offsets=[payload['offset']], label=label)
+            self._add_reverse_series(
+                typ=payload['type'],
+                offsets=[payload['offset']],
+                label=label,
+                bit=payload.get('bit'),
+            )
         else:
             self._remove_reverse_series(label)
 
@@ -736,7 +800,7 @@ class Dashboard(QWidget):
         65: ['current_electrolyse_percent', 'boost_remaining_min',
              'inversion_period_min', 'inversion_timer_min',
              'shutter_mode_electrolyse_percent',
-             'flow_switch', 'volet_actif', 'volet_force', 'elx_fault_code'],
+             'flow_switch', 'volet_actif', 'volet_force', 'polarity_phase_a', 'elx_fault_code'],
         83: ['ph_consigne', 'err_max', 'err_min'],
         69: ['redox_consigne'],
     }
@@ -787,6 +851,7 @@ class Dashboard(QWidget):
         self.flow_switch_checkbox.setChecked(bool(s.flow_switch))
         self.volet_actif_checkbox.setChecked(bool(s.volet_actif))
         self.volet_force_checkbox.setChecked(bool(s.volet_force))
+        self.polarity_phase_a_checkbox.setChecked(bool(s.polarity_phase_a))
 
     def refresh(self):
         """Rafraîchissement complet : labels + graphiques (accès DB).
@@ -795,9 +860,9 @@ class Dashboard(QWidget):
         """
         self._refresh_labels()
 
-        _h77 = self._decode_frames_history(77, 10000)
-        _h83 = self._decode_frames_history(83, 10000)
-        _h65 = self._decode_frames_history(65, 10000)
+        _h77 = self._decode_frames_history(77, 100_000)
+        _h83 = self._decode_frames_history(83, 100_000)
+        _h65 = self._decode_frames_history(65, 100_000)
 
         ph = _h77.get('ph', [])
         ph_consigne = _h83.get('ph_consigne', [])
@@ -806,6 +871,7 @@ class Dashboard(QWidget):
         inversion_timer = _h65.get('inversion_timer_min', [])
         inversion_period = _h65.get('inversion_period_min', [])
         boost_remain = _h65.get('boost_remaining_min', [])
+        polarity_phase = _h65.get('polarity_phase_a', [])
         
         def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 300.0) -> tuple[list[float], list[float]]:
             xs: list[float] = []
@@ -836,6 +902,7 @@ class Dashboard(QWidget):
         inversion_timer_x, inversion_timer_y = to_plot_points(inversion_timer)
         inversion_period_x, inversion_period_y = to_plot_points(inversion_period)
         boost_x, boost_y = to_plot_points(boost_remain)
+        polarity_phase_x, polarity_phase_y = to_plot_points(polarity_phase)
 
         # expose arrays for crosshair nearest-point lookup
         self.ph_x, self.ph_y = ph_x, ph_y
@@ -846,6 +913,7 @@ class Dashboard(QWidget):
         self.inversion_timer_x, self.inversion_timer_y = inversion_timer_x, inversion_timer_y
         self.inversion_period_x, self.inversion_period_y = inversion_period_x, inversion_period_y
         self.boost_x, self.boost_y = boost_x, boost_y
+        self.polarity_phase_x = polarity_phase_x
 
         self.ph_curve.setData(ph_x, ph_y, connect='finite')
         self.ph_setpoint_curve.setData(ph_cons_x, ph_cons_y, connect='finite')
@@ -863,6 +931,16 @@ class Dashboard(QWidget):
         self.electro_setpoint_curve.setData(electro_cons_x, electro_cons_y, connect='finite')
         self.inversion_timer_curve.setData(inversion_timer_x, inversion_timer_y, connect='finite')
         self.inversion_period_curve.setData(inversion_period_x, inversion_period_y, connect='finite')
+        # courbe binaire phase de polarité sur l'axe droit
+        polarity_state_y = []
+        for val in polarity_phase_y:
+            if val != val:  # NaN
+                polarity_state_y.append(float('nan'))
+            else:
+                polarity_state_y.append(1.0 if val else 0.0)
+        self.polarity_phase_state_y = polarity_state_y
+        self.polarity_phase_curve.setData(polarity_phase_x, polarity_state_y, connect='finite')
+        self.cycle_right_vb.setYRange(-0.05, 1.05, padding=0)
         self.boost_curve.setData(boost_x, boost_y, connect='finite')
 
         # Mettre à jour les courbes RE actives avec le dernier historique

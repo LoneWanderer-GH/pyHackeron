@@ -156,9 +156,13 @@ Format général des trames (17 octets) :
 ### Rétro-ingénierie
 - Table byte-par-byte pour chaque type de trame (65/69/77/83)
   - Coloration : vert = octet décodé connu, orange = inconnu
+  - Lignes dépliables par octet : chaque bit est affiché individuellement (valeur 0/1), les bits à signification connue sont nommés et colorés différemment
+  - Case à cocher « Plot » par octet **ou par bit** pour tracer une courbe booléenne en temps réel
   - Clic droit sur une sélection : interprétation uint16, int16, float16, ASCII, bitmask
-  - Case à cocher « Plot » pour tracer un octet ou une interprétation multi-octets
-- Graphe libre — séries ajoutées manuellement, gestion dans le panneau de droite- État actuel du reverse engineering et liste des champs inconnus : **[PROTOCOL.md](PROTOCOL.md)**
+- Graphe libre — séries ajoutées manuellement, gestion dans le panneau de droite
+- État actuel du reverse engineering et liste des champs inconnus : **[PROTOCOL.md](PROTOCOL.md)**
+
+![Reverse Engineering](docs/img/reverse_engineering_ui.png)
 ### Logs
 - Vue console avec coloration par niveau (DEBUG/INFO/WARNING/ERROR)
 
@@ -247,18 +251,25 @@ utilisable directement comme entités MQTT JSON dans HA.
 - Métriques BLE : RSSI, paquets envoyés/reçus, uptime
 - Bouton **Sync DB** (mode réseau) — télécharge la base distante
 
+![Dashboard](docs/img/main_panel.png)
+
 ### Graphiques
 - **pH et consigne pH** — axe secondaire droit pour l'état de la pompe pH− (0/1)
 - **Électrolyse % et consigne volet**
 - **Cycles A / B**
 - Curseur interactif (barre verticale + labels valeurs au survol)
 
+![Graphiques](docs/img/graphics_panel.png)
+
 ### Rétro-ingénierie
 - Table byte-par-byte pour chaque type de trame (65/69/77/83)
   - Coloration : vert = octet décodé connu, orange = inconnu
+  - Lignes dépliables par octet : chaque bit affiche sa valeur (0/1) et son nom si connu
+  - Case à cocher « Plot » par octet **ou par bit** pour tracer une courbe booléenne
   - Clic droit sur une sélection : interprétation uint16, int16, float16, ASCII, bitmask
-  - Case à cocher « Plot » pour tracer un octet ou une interprétation multi-octets
 - Graphe libre — séries ajoutées manuellement
+
+![Reverse Engineering](docs/img/reverse_engineering_ui.png)
 
 ### Logs
 - Vue console avec coloration par niveau (DEBUG/INFO/WARNING/ERROR)

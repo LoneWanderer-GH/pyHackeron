@@ -100,6 +100,8 @@ def _parse_args() -> argparse.Namespace:
                    default=os.environ.get("CORELEC_DB_PATH", "pool.db"))
     p.add_argument("--sync-db", action="store_true",
                    help="Mode réseau : demander un dump de la DB distante au démarrage")
+    p.add_argument("--redecode", action="store_true",
+                   help="Re-décode tous les raw_frames dans decoded_frames au démarrage (utile après mise à jour du décodeur)")
     p.add_argument("--log-level",
                    default=os.environ.get("CORELEC_LOG_LEVEL", "INFO"),
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -120,6 +122,11 @@ def main() -> None:
 
     state = RegulatorState()
     db = Database(args.db_path)
+
+    if args.redecode:
+        logger.info("--redecode : re-décodage de decoded_frames en cours…")
+        n = db.force_redecode()
+        logger.info("--redecode terminé : %d trames décodées", n)
 
     # Titre différent selon le mode
     if args.network:

@@ -57,6 +57,7 @@ class Decoder:
             flow_switch=d['flow_switch'],
             volet_actif=d['volet_actif'],
             volet_force=d['volet_force'],
+            polarity_phase_a=d['polarity_phase_a'],
             inversion_timer_min=d['inversion_timer_min'],
             elx_fault_code=d.get('elx_fault_code', 0),
         )

@@ -156,6 +156,19 @@ class Frame77(FrameBase):
             'regulation_active':  bool(be.pump_flags & (1 << 5)),
             'config_capteur_sel_actif': bool(be.sensor_config_flags & (1 << 3)),
             'pompes_forcees':     bool(be.sensor_config_flags & (1 << 7)),
+            # Noms des bits connus pour l'UI Reverse Engineering
+            '_bit_names': {
+                12: {  # pump_flags
+                    0: 'const_1_b0',
+                    1: 'const_1_b1',
+                    5: 'regulation_active',
+                    6: 'pompe_moins_active',
+                },
+                13: {  # sensor_config_flags
+                    3: 'config_sel_actif',
+                    7: 'pompes_forcees',
+                },
+            },
         })
         return d
 
@@ -246,10 +259,17 @@ class Frame65(FrameBase):
             #                               # Compteur écoulé du cycle d'inversion courant (en minutes)
             ('shutter_mode', c_uint8),   # byte 9   shutter_mode_electrolyse_percent
             # byte 10  bitfield io_flags :
-            #   bit 2 (0x04) : toujours à 1 dans les données observées (usage inconnu)
-            #   bit 3 (0x08) : volet_force (non vérifié)
-            #   bit 4 (0x10) : volet_actif (non vérifié)
-            #   bits 5+6 (0x60) : alarme défaut d’écoulement — 0 = flux OK, non-zéro = pas de flux
+            #   bit 2 (0x04)    : toujours actif dans les données observées (usage inconnu).
+            #   bit 3 (0x08)    : volet_force (non vérifié)
+            #   bit 4 (0x10)    : volet_actif (non vérifié)
+            #   bit 5 (0x20)    : indicateur de phase de polarité A.
+            #                     1 = phase A (io_flags typique = 0x24),
+            #                     0 = phase B après remise à 0 du compteur (io_flags = 0x04).
+            #   bit 6 (0x40)    : alarme défaut d'écoulement.
+            #                     Quand bit6=1 ET bit5=1 simultanément → io_flags=0x64 → flux interrompu.
+            #   Hypothèse initiale « bits 0+1 = polarité » INFIRMÉE :
+            #   toutes les trames observées (n>31 000) ont bits 0+1 = 0.
+            #   La valeur 0x23 mentionnée dans les notes antérieures était une lecture erronée de 0x24.
             ('io_flags',     c_uint8),   # byte 10
             ('b11',          c_uint8),   # byte 11 unknown
             # byte 12 : code d’arrêt de l’électrolyseur lié au défaut de flux
@@ -274,12 +294,26 @@ class Frame65(FrameBase):
             'current_electrolyse_percent':     be.electrolyse,
             'inversion_period_min':             be.inversion_period,
             'shutter_mode_electrolyse_percent': be.shutter_mode,
-            # flow_switch : True = eau en écoulement (bits 5+6 de io_flags non-actifs)
-            # Les bits 5 et 6 passent à 1 simultanément quand l’écoulement s’arrête.
-            'flow_switch':                     (be.io_flags & 0x60) == 0,
+            # flow_switch : True = eau en écoulement (bit 6 de io_flags inactif).
+            # Bit 6 (0x40) seul = alarme flux. Bit 5 (0x20) = indicateur de phase, indépendant du flux.
+            'flow_switch':                     (be.io_flags & 0x40) == 0,
             'volet_actif':                     bool(be.io_flags & (1 << 4)),
             'volet_force':                     bool(be.io_flags & (1 << 3)),
+            # polarity_phase_a : True = phase A de polarité (bit 5 actif).
+            # Observé : io_flags=0x24 (bit5=1, phase A) → 0x04 (bit5=0, phase B) lors du reset.
+            # NB : bits 0+1 sont toujours à 0 dans toutes les trames observées (>31 000).
+            'polarity_phase_a':                bool(be.io_flags & 0x20),
             'inversion_timer_min':             be.inversion_timer,
             'elx_fault_code':                  be.elx_fault_code,
+            # Noms des bits connus de io_flags (byte 10) pour l'UI Reverse Engineering
+            '_bit_names': {
+                10: {
+                    2: 'const_1',
+                    3: 'volet_force',
+                    4: 'volet_actif',
+                    5: 'polarity_phase_a',
+                    6: 'flow_alarm',
+                },
+            },
         })
         return d

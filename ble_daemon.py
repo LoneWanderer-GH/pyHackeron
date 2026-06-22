@@ -348,7 +348,7 @@ class BLEDaemon:
 
         # Connecter le bus d’événements aux callbacks ZMQ
         bus.connection.connect(self._on_connection)
-
+        # bus.state_updated.connect(self._on_state_updated)
         bus.reverse.connect(self._on_reverse)
         bus.log.connect(self._on_log)
 
