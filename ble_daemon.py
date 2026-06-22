@@ -100,12 +100,16 @@ class StatusBoard:
         self.pkt_recv:     int   = 0
         # compteurs de trames par type
         self.frames: dict[int, int] = {65: 0, 69: 0, 77: 0, 83: 0}
+        # horodatages
+        self.conn_established_at: datetime | None = None
+        self.last_frame_ts: dict[int, datetime | None] = {65: None, 69: None, 77: None, 83: None}
 
     # ---------------------------------------------------------------- mise à jour
 
     def update_connection(self, info: ConnectionInfo) -> None:
         m = info.metrics
         with self._lock:
+            prev_state = self.conn_state
             self.conn_state   = info.state
             self.conn_message = (info.message or "")[:55]
             self.retry        = info.retry_count
@@ -113,11 +117,14 @@ class StatusBoard:
             self.ble_uptime   = m.connection_uptime_s
             self.pkt_sent     = m.packets_sent
             self.pkt_recv     = m.packets_received
+            if info.state == "connected" and prev_state != "connected":
+                self.conn_established_at = datetime.now()
 
     def add_frame(self, frame_type: int) -> None:
         with self._lock:
             if frame_type in self.frames:
                 self.frames[frame_type] += 1
+                self.last_frame_ts[frame_type] = datetime.now()
 
     # ---------------------------------------------------------------- rendu rich
 
@@ -134,6 +141,35 @@ class StatusBoard:
                 "disconnected": "dim white",
             }.get(self.conn_state, "white")
 
+            # Horodatage de connexion BLE
+            est_str = self.conn_established_at.strftime("%Y-%m-%d %H:%M:%S") \
+                if self.conn_established_at else "—"
+
+            # Silence : âge du dernier paquet BLE reçu (tous types confondus)
+            all_ts = [ts for ts in self.last_frame_ts.values() if ts is not None]
+            if all_ts:
+                last_any = max(all_ts)
+                silence_s = (datetime.now() - last_any).total_seconds()
+                if silence_s < 60:
+                    silence_str = f"{silence_s:.0f}s"
+                    silence_style = "bold green" if silence_s < 10 else "yellow"
+                else:
+                    silence_str = f"{silence_s/60:.1f}m"
+                    silence_style = "bold red"
+            else:
+                silence_str, silence_style = "—", "dim"
+
+            # Formatage count + âge pour un type de trame
+            def _frame_cell(ftype: int) -> _Text:
+                count = self.frames[ftype]
+                ts = self.last_frame_ts.get(ftype)
+                if ts:
+                    age = (datetime.now() - ts).total_seconds()
+                    suffix = f"  ({age:.0f}s)" if age < 120 else f"  ({age/60:.0f}m)"
+                else:
+                    suffix = ""
+                return _Text(f"{count}{suffix}", style="bold cyan")
+
             tbl = _Table(box=_rich_box.SIMPLE, show_header=False, expand=True,
                          padding=(0, 2))
             tbl.add_column(style="dim cyan",  no_wrap=True, ratio=3)
@@ -147,6 +183,9 @@ class StatusBoard:
             tbl.add_row("",
                         _Text(self.conn_message or "—", overflow="ellipsis"),
                         "Retries",    str(self.retry))
+            tbl.add_row("BLE établi",
+                        _Text(est_str, style="dim white"),
+                        "Silence",    _Text(silence_str, style=silence_style))
             tbl.add_row("RSSI",
                         f"{self.rssi} dBm" if self.rssi else "—",
                         "Uptime BLE", f"{self.ble_uptime:.0f}s")
@@ -157,13 +196,13 @@ class StatusBoard:
             tbl.add_row("Total trames",
                         _Text(str(total), style="bold white"),
                         FRAME_LABELS[77],
-                        _Text(str(self.frames[77]), style="bold cyan"))
+                        _frame_cell(77))
             tbl.add_row(FRAME_LABELS[65],
-                        _Text(str(self.frames[65]), style="bold cyan"),
+                        _frame_cell(65),
                         FRAME_LABELS[83],
-                        _Text(str(self.frames[83]), style="bold cyan"))
+                        _frame_cell(83))
             tbl.add_row(FRAME_LABELS[69],
-                        _Text(str(self.frames[69]), style="bold cyan"),
+                        _frame_cell(69),
                         "", "")
 
         return _Panel(tbl,

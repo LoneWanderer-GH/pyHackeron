@@ -22,6 +22,12 @@ CHAR_UUID = "e7add780-b042-4876-aae1-112855353cc1"
 
 SEQ_MAIN = [77, 83, 65, 69]
 
+# Délai sans réception de trame BLE avant de forcer une reconnexion.
+# Le régulateur peut couper silencieusement les notifications GATT tout en
+# maintenant la connexion TCP/BLE côté stack → Bleak reste is_connected=True
+# mais plus aucun notify() n'est appelé. Ce watchdog détecte ce cas.
+STALE_TIMEOUT_S = 60
+
 
 
 # class Acquisition:
@@ -414,6 +420,7 @@ class Acquisition:
         
         self.metrics = ConnectionMetrics()
         self.connection_start_time = None
+        self.last_frame_at: float = 0.0   # time.monotonic() du dernier notify() valide
 
         signals.retry_requested.connect(self.request_restart)
         signals.cancel_requested.connect(self.request_cancel)
@@ -552,6 +559,7 @@ class Acquisition:
                 raise RuntimeError("Connexion échouée")
 
             self.connection_start_time = time.monotonic()
+            self.last_frame_at = time.monotonic()  # grace period : watchdog à partir d'ici
             self.metrics = ConnectionMetrics()
 
             device_name = getattr(self.client, "name", None) or ""
@@ -573,6 +581,25 @@ class Acquisition:
 
             while not self.stop_event.is_set():
                 await self.update_metrics(self.client)
+                # Watchdog silence BLE : si plus aucune notification GATT depuis STALE_TIMEOUT_S,
+                # le régulateur a probablement coupé silencieusement la connexion.
+                if self.last_frame_at > 0:
+                    silence = time.monotonic() - self.last_frame_at
+                    if silence > STALE_TIMEOUT_S:
+                        logger.warning(
+                            "Silence BLE depuis %.0fs (> %ds) — reconnexion forcée",
+                            silence, STALE_TIMEOUT_S,
+                        )
+                        signals.connection.emit(ConnectionInfo(
+                            state="error",
+                            message=f"Silence BLE {silence:.0f}s — reconnexion forcée",
+                            elapsed=int(time.monotonic() - self.connection_start_time),
+                            remaining=0,
+                            timeout=self.connection_time_out_s,
+                            retry_count=self.retry_count,
+                            metrics=self.metrics,
+                        ))
+                        self.stop_event.set()
                 await asyncio.sleep(0.5)
 
         except Exception as e:
