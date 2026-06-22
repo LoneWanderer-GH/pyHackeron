@@ -322,6 +322,8 @@ class Dashboard(QWidget):
         ]
 
         # setup interactive crosshairs for graphs
+        # _crosshair_proxies : maintenir les références pour éviter le GC
+        self._crosshair_proxies: list = []
         self._setup_crosshair(self.ph_graph)
         self._setup_crosshair(self.electro_graph)
         self._setup_crosshair(self.cycle_graph)
@@ -520,6 +522,7 @@ class Dashboard(QWidget):
 
     def _setup_crosshair(self, graph: pg.PlotWidget):
         vline = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=1))
+        vline.setVisible(False)  # caché tant que le curseur n'est pas dans la vue
         graph.addItem(vline)
 
         texts = []
@@ -529,18 +532,29 @@ class Dashboard(QWidget):
             texts.append((s, t))
 
         cb = functools.partial(self._on_mouse_moved, graph, vline, texts)
-        graph.scene().sigMouseMoved.connect(cb)
+        # SignalProxy : limite à 60 événements/s pour ne pas saturer le thread Qt
+        proxy = pg.SignalProxy(graph.scene().sigMouseMoved, rateLimit=60,
+                               slot=lambda args: cb(args[0]))
+        self._crosshair_proxies.append(proxy)  # maintenir la référence
 
     def _on_mouse_moved(self, graph: pg.PlotWidget, vline: pg.InfiniteLine, texts, evt):
         try:
             vb = graph.getViewBox()
-            if not vb.sceneBoundingRect().contains(evt):
+            in_view = vb.sceneBoundingRect().contains(evt)
+            if not in_view:
+                # Masquer la ligne et les labels quand le curseur sort de la vue
+                if vline.isVisible():
+                    vline.setVisible(False)
+                    for _, text_item in texts:
+                        text_item.setText('')
                 return
             pos = vb.mapSceneToView(evt)
             x = pos.x()
         except Exception:
             return
 
+        if not vline.isVisible():
+            vline.setVisible(True)
         # position the vertical line directly at the mouse cursor
         vline.setPos(x)
 
