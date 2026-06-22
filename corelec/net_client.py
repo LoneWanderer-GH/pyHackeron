@@ -253,20 +253,15 @@ class NetworkClient(threading.Thread):
             raw = bytearray.fromhex(hex_str)
         except Exception:
             return
-        # Stocker la trame brute en DB locale (source unique pour les graphiques)
-        try:
-            with self.database.lock:
-                self.database.conn.execute(
-                    "INSERT INTO raw_frames(ts, frame_type, frame_hex) VALUES(?,?,?)",
-                    (ts, frame_type, hex_str),
-                )
-                self.database.conn.commit()
-        except Exception as e:
-            logger.debug("DB insert raw_frame: %s", e)
         # Décoder côté client — le daemon est un simple passe-plat
         from corelec.BLE.frame import Frame
         frame = Frame.parse(raw)
         if frame:
+            # Stocker dans raw_frames + decoded_frames (source des graphiques)
+            try:
+                self.database.store_frame(frame, ts=ts)
+            except Exception as e:
+                logger.debug("DB store_frame: %s", e)
             try:
                 decoded_full = self._decoder.decode(frame)
                 self.state.update(decoded_full)

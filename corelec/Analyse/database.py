@@ -95,8 +95,12 @@ class Database:
         if _empty and _has_raw:
             self._backfill_decoded_frames()
 
-    def store_frame(self, frame: Frame) -> None:
-        """Stocke la trame brute ET les valeurs décodées dans une seule transaction."""
+    def store_frame(self, frame: Frame, ts: str | None = None) -> None:
+        """Stocke la trame brute ET les valeurs décodées dans une seule transaction.
+
+        ``ts`` permet de conserver l'horodatage d'origine (ex. daemon ZMQ).
+        Si None, utilise l'heure locale.
+        """
         # Import local pour éviter tout problème de dépendance circulaire au niveau module.
         from corelec.ReverseEngineering.ctypes_frames import FrameBase as CFrameBase
         from corelec.ReverseEngineering.ctypes_frames import Frame77 as CFrame77
@@ -106,7 +110,8 @@ class Database:
         # CFrame77|CFrame65|CFrame69|CFrame83
         _parsers : dict[int, CFrameBase.__class__] = {77: CFrame77, 65: CFrame65, 83: CFrame83, 69: CFrame69}
 
-        ts = datetime.now().isoformat()
+        if ts is None:
+            ts = datetime.now().isoformat()
         decoded_json: str | None = None
         parser = _parsers.get(frame.type)
         if parser is not None:

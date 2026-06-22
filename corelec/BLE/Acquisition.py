@@ -72,6 +72,7 @@ class Acquisition:
             if not frame:
                 continue
 
+            self.last_frame_at = time.monotonic()  # réinitialise le watchdog silence
             self.metrics.frames_parsed += 1
             self.database.store_frame(frame)
 
