@@ -345,13 +345,14 @@ def dump_db_to_zmq(db: Database, pub: ZmqPublisher, table: str = "decoded_values
 class BLEDaemon:
 
     def __init__(self, address: str, pub_port: int, cmd_port: int, db_path: str,
-                 board: StatusBoard | None = None):
+                 board: StatusBoard | None = None,
+                 poll_interval_s: float = 5.0):
         self.address = address
         self.db = Database(db_path)
         self.state = RegulatorState()
         self.pub = ZmqPublisher(pub_port)
 
-        # Connecter le bus d’événements aux callbacks ZMQ
+        # Connecter le bus d'événements aux callbacks ZMQ
         bus.connection.connect(self._on_connection)
         # bus.state_updated.connect(self._on_state_updated)
         bus.reverse.connect(self._on_reverse)
@@ -362,6 +363,7 @@ class BLEDaemon:
             state=self.state,
             database=self.db,
             retry_count=0,
+            poll_interval_s=poll_interval_s,
         )
 
         self.cmd_listener = ZmqCommandListener(
@@ -517,6 +519,9 @@ def _parse_args() -> argparse.Namespace:
                    help=f"Port ZMQ CMD PULL (défaut {DEFAULT_CMD_PORT})")
     p.add_argument("--db-path",  default=os.environ.get("CORELEC_DB_PATH", "pool.db"),
                    help="Chemin vers la base SQLite")
+    p.add_argument("--poll-interval", type=float,
+                   default=float(os.environ.get("CORELEC_POLL_INTERVAL", "5.0")),
+                   help="Intervalle de polling BLE en secondes (défaut 5.0)")
     p.add_argument("--log-level", default=os.environ.get("CORELEC_LOG_LEVEL", "INFO"),
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return p.parse_args()
@@ -561,6 +566,7 @@ def main() -> None:
         cmd_port=args.cmd_port,
         db_path=args.db_path,
         board=board,
+        poll_interval_s=args.poll_interval,
     )
 
     loop = asyncio.get_event_loop()

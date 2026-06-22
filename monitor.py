@@ -58,11 +58,13 @@ logger = logging.getLogger(__name__)
 
 def _run_ble(stop_event: threading.Event, address: str,
              state: RegulatorState, db: Database,
-             initial_retry: int = 0) -> None:
+             initial_retry: int = 0,
+             poll_interval_s: float = 5.0) -> None:
     retry_count = initial_retry
     while not stop_event.is_set():
         acq = Acquisition(address=address, state=state, database=db,
-                          retry_count=retry_count)
+                          retry_count=retry_count,
+                          poll_interval_s=poll_interval_s)
         try:
             asyncio.run(acq.run())
         except Exception as e:
@@ -105,6 +107,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--log-level",
                    default=os.environ.get("CORELEC_LOG_LEVEL", "INFO"),
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    p.add_argument("--poll-interval", type=float,
+                   default=float(os.environ.get("CORELEC_POLL_INTERVAL", "5.0")),
+                   help="Intervalle de polling BLE en secondes (défaut 5.0)")
     return p.parse_args()
 
 
@@ -181,6 +186,7 @@ def main() -> None:
             threading.Thread(
                 target=_run_ble,
                 args=(new_stop, args.address, state, db),
+                kwargs={'poll_interval_s': args.poll_interval},
                 daemon=True,
             ).start()
 
@@ -190,6 +196,7 @@ def main() -> None:
         threading.Thread(
             target=_run_ble,
             args=(stop_event, args.address, state, db),
+            kwargs={'poll_interval_s': args.poll_interval},
             daemon=True,
         ).start()
 

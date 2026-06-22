@@ -942,7 +942,34 @@ class Dashboard(QWidget):
         69: ['redox_consigne'],
     }
 
-    def _decode_frames_history(self, frame_type: int, limit: int) -> dict:
+    # Pas de temps d'affichage pour les graphiques.
+    # Un point par fenêtre de 30 s réduit considérablement le rendu
+    # tout en conservant une résolution suffisante pour le monitoring.
+    _DISPLAY_STEP_S: float = 30.0
+
+    def _build_disconnect_intervals(
+        self, events: list[tuple[str, str, str]]
+    ) -> list[tuple[float, float]]:
+        """Construit des intervalles (epoch_disco, epoch_reco) depuis connection_events."""
+        intervals: list[tuple[float, float]] = []
+        disco_at: float | None = None
+        now = datetime.now().timestamp()
+        for ts_iso, event, _ in events:
+            try:
+                epoch = datetime.fromisoformat(ts_iso).timestamp()
+            except Exception:
+                continue
+            if event == 'disconnected':
+                disco_at = epoch
+            elif event == 'connected' and disco_at is not None:
+                intervals.append((disco_at, epoch))
+                disco_at = None
+        if disco_at is not None:
+            intervals.append((disco_at, now))
+        return intervals
+
+    def _decode_frames_history(self, frame_type: int, limit: int,
+                                display_step_s: float = 0.0) -> dict:
         """Lit les valeurs décodées depuis decoded_frames (via json_extract SQL).
         Aucun décodage ctypes côté Python — les trames sont pré-décodées à la
         réception (store_frame) ou au premier démarrage (backfill one-shot).
@@ -950,7 +977,9 @@ class Dashboard(QWidget):
         fields = self._DECODED_FIELDS.get(frame_type)
         if not fields:
             return {}
-        return self.database.load_decoded_frames_by_type(frame_type, fields, limit)
+        return self.database.load_decoded_frames_by_type(
+            frame_type, fields, limit, display_step_s=display_step_s
+        )
 
     def _refresh_labels(self):
         """Mise à jour rapide des labels/checkboxes uniquement — sans accès DB.
@@ -1023,9 +1052,16 @@ class Dashboard(QWidget):
         """
         self._refresh_labels()
 
-        _h77 = self._decode_frames_history(77, 100_000)
-        _h83 = self._decode_frames_history(83, 100_000)
-        _h65 = self._decode_frames_history(65, 100_000)
+        _h77 = self._decode_frames_history(77, 100_000, self._DISPLAY_STEP_S)
+        _h83 = self._decode_frames_history(83, 100_000, self._DISPLAY_STEP_S)
+        _h65 = self._decode_frames_history(65, 100_000, self._DISPLAY_STEP_S)
+
+        # Intervalles de déconnexion pour une détection de trous plus robuste
+        try:
+            _conn_events = self.database.load_connection_events(limit=500)
+        except Exception:
+            _conn_events = []
+        _disconnect_intervals = self._build_disconnect_intervals(_conn_events)
 
         ph = _h77.get('ph', [])
         ph_consigne = _h83.get('ph_consigne', [])
@@ -1036,7 +1072,7 @@ class Dashboard(QWidget):
         boost_remain = _h65.get('boost_remaining_min', [])
         polarity_phase = _h65.get('polarity_phase_a', [])
         
-        def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 300.0) -> tuple[list[float], list[float]]:
+        def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 120.0) -> tuple[list[float], list[float]]:
             xs: list[float] = []
             ys: list[float] = []
             previous_ts: float | None = None
@@ -1046,10 +1082,15 @@ class Dashboard(QWidget):
                 except Exception:
                     continue
 
-                if previous_ts is not None and x - previous_ts > gap_threshold_seconds:
-                    # insert a NaN to break the line when a large time gap occurs
-                    xs.append(x)
-                    ys.append(float('nan'))
+                if previous_ts is not None:
+                    gap = x - previous_ts
+                    in_disconnect = any(
+                        d <= x and r >= previous_ts
+                        for d, r in _disconnect_intervals
+                    )
+                    if gap > gap_threshold_seconds or in_disconnect:
+                        xs.append(x)
+                        ys.append(float('nan'))
 
                 xs.append(x)
                 ys.append(value)

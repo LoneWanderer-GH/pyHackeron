@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import sqlite3
 import threading
+import time as _time
 import logging
 
 from corelec.BLE.frame import Frame
@@ -31,7 +32,7 @@ class Database:
     Thread-safe : toutes les écritures utilisent ``self.lock``.
     """
 
-    def __init__(self, path:str | Path="pool.db"):
+    def __init__(self, path:str | Path="pool.db", sparse_heartbeat_s: float = 60.0):
         _path  : Path = Path(path)
         if not _path.is_absolute():
             _path = Path(__file__).resolve().parent.parent / _path
@@ -86,7 +87,26 @@ class Database:
         ON decoded_frames(frame_type, ts)
         """)
 
+        self.conn.execute("""
+        CREATE TABLE IF NOT EXISTS connection_events(
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts      TEXT    NOT NULL,
+            event   TEXT    NOT NULL,
+            message TEXT    DEFAULT ''
+        )
+        """)
+        self.conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_conn_events_ts
+        ON connection_events(ts)
+        """)
+
         self.conn.commit()
+
+        # Cache pour stockage éparse : seulement stocker si les données changent
+        # ou si sparse_heartbeat_s secondes se sont écoulées depuis le dernier stockage.
+        self.sparse_heartbeat_s = sparse_heartbeat_s
+        self._sparse_json: dict[int, str]   = {}   # dernière JSON stockée par frame_type
+        self._sparse_ts:   dict[int, float] = {}   # monotonic du dernier stockage
 
         # Backfill one-shot : si decoded_frames est vide mais raw_frames ne l'est pas
         # (migration depuis une base existante sans decoded_frames).
@@ -126,9 +146,26 @@ class Database:
                     and v is not None
                     and isinstance(v, (int, float, bool))
                 }
-                decoded_json = json.dumps(clean)
+                decoded_json = json.dumps(clean, sort_keys=True)
             except Exception:
                 pass
+
+        # Stockage éparse : seulement stocker si les données ont changé ou si le
+        # heartbeat est échu, pour réduire le volume en BD lors de valeurs stables.
+        now_mono = _time.monotonic()
+        last_json = self._sparse_json.get(frame.type)
+        last_ts   = self._sparse_ts.get(frame.type, 0.0)
+        should_store = (
+            decoded_json is None                              # type inconnu
+            or last_json is None                              # premier échantillon
+            or (now_mono - last_ts) >= self.sparse_heartbeat_s  # heartbeat échu
+            or last_json != decoded_json                      # valeur changée
+        )
+        if not should_store:
+            return
+        if decoded_json is not None:
+            self._sparse_json[frame.type] = decoded_json
+            self._sparse_ts[frame.type]   = now_mono
 
         with self.lock:
             self.conn.execute(
@@ -146,12 +183,14 @@ class Database:
         """No-op : les valeurs décodées sont dérivées des trames brutes par l’UI à l’affichage."""
 
     def load_decoded_frames_by_type(
-        self, frame_type: int, fields: list[str], limit: int = 10000
+        self, frame_type: int, fields: list[str], limit: int = 10000,
+        display_step_s: float = 0.0,
     ) -> dict[str, list[tuple[str, float]]]:
-        """Lit les valeurs décodées directement depuis decoded_frames via json_extract.
+        """Lit les valeurs décodées depuis decoded_frames.
 
-        Retourne {field_name: [(ts_iso, float_value), ...]} en ordre chronologique.
-        Aucun décodage Python : le parsing JSON est fait côté SQLite.
+        ``display_step_s > 0`` active un élagage côté Python : on ne garde qu'un
+        point par fenêtre de ``display_step_s`` secondes, ce qui réduit
+        considérablement le nombre de points tracés.
         """
         sel = ", ".join(f"json_extract(data,'$.{f}')" for f in fields)
         sql = (
@@ -162,6 +201,20 @@ class Database:
         cur.execute(sql, (frame_type, limit))
         rows = list(reversed(cur.fetchall()))
 
+        # Élagage par pas de temps (stride Python) pour réduire les points affichés
+        if display_step_s > 0 and rows:
+            strided: list = []
+            last_epoch: float | None = None
+            for row in rows:
+                try:
+                    epoch = datetime.fromisoformat(row[0]).timestamp()
+                except Exception:
+                    continue
+                if last_epoch is None or epoch - last_epoch >= display_step_s:
+                    strided.append(row)
+                    last_epoch = epoch
+            rows = strided
+
         result: dict[str, list[tuple[str, float]]] = {f: [] for f in fields}
         for row in rows:
             ts = row[0]
@@ -170,6 +223,30 @@ class Database:
                 if v is not None:
                     result[f].append((ts, float(v)))
         return result
+
+    def log_connection_event(self, event: str, message: str = '') -> None:
+        """Enregistre un événement de connexion/déconnexion BLE."""
+        ts = datetime.now().isoformat()
+        try:
+            with self.lock:
+                self.conn.execute(
+                    "INSERT INTO connection_events(ts, event, message) VALUES(?,?,?)",
+                    (ts, event, message[:200]),
+                )
+                self.conn.commit()
+        except Exception as exc:
+            logger.debug("log_connection_event error: %s", exc)
+
+    def load_connection_events(
+        self, limit: int = 500
+    ) -> list[tuple[str, str, str]]:
+        """Retourne [(ts, event, message), ...] en ordre chronologique."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT ts, event, message FROM connection_events ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        return list(reversed(cur.fetchall()))
 
     def _backfill_decoded_frames(self) -> None:
         """Migration one-shot : décode toutes les raw_frames existantes dans decoded_frames.
@@ -205,7 +282,7 @@ class Database:
                     and v is not None
                     and isinstance(v, (int, float, bool))
                 }
-                batch.append((ts, frame_type, json.dumps(clean)))
+                batch.append((ts, frame_type, json.dumps(clean, sort_keys=True)))
             except Exception:
                 continue
 
@@ -218,12 +295,11 @@ class Database:
         logger.info("Backfill terminé : %d lignes décodées", len(batch))
 
     def force_redecode(self) -> int:
-        """Efface decoded_frames et re-décode tous les raw_frames depuis zéro.
-
-        Utile quand la logique de décodage change (nouveaux champs, corrections).
-        Retourne le nombre de lignes dans decoded_frames après re-décodage.
-        """
+        """Efface decoded_frames et re-décode tous les raw_frames depuis zéro."""
         logger.info("force_redecode : suppression de decoded_frames…")
+        # Vider le cache éparse pour forcer un re-stockage après redecode
+        self._sparse_json.clear()
+        self._sparse_ts.clear()
         with self.lock:
             self.conn.execute("DELETE FROM decoded_frames")
             self.conn.commit()

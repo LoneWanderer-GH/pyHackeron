@@ -32,11 +32,12 @@ STALE_TIMEOUT_S = 60
 
 class Acquisition:
 
-    def __init__(self, address:str, state: RegulatorState, database: Database, retry_count:int=0):
+    def __init__(self, address:str, state: RegulatorState, database: Database, retry_count:int=0, poll_interval_s: float = 5.0):
         self.address = address
         self.state: RegulatorState = state
         self.database: Database = database
         self.retry_count = retry_count
+        self.poll_interval_s = poll_interval_s
 
         self.parser = StreamParser()
         self.decoder = Decoder()
@@ -177,7 +178,7 @@ class Acquisition:
         while not self.stop_event.is_set():
             await self._drain_commands(client)
             await self.send_seq(client)
-            await asyncio.sleep(2)
+            await asyncio.sleep(self.poll_interval_s)
 
     async def run(self):
 
@@ -234,6 +235,7 @@ class Acquisition:
                 retry_count=self.retry_count,
                 metrics=self.metrics,
             ))
+            self.database.log_connection_event('connected', conn_msg)
 
             await self.client.start_notify(CHAR_UUID, self.notify)
 
@@ -275,6 +277,7 @@ class Acquisition:
             ))
 
         finally:
+            self.database.log_connection_event('disconnected', 'Fin de session BLE')
             try:
                 if self.task_poll:
                     self.task_poll.cancel()
