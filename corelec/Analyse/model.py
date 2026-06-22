@@ -24,6 +24,8 @@ class RegulatorState:
     sel: float | None = None
 
     ph_consigne: float | None = None
+    err_max:     float | None = None   # seuil haut tolérance pH (Frame 83)
+    err_min:     float | None = None   # seuil bas  tolérance pH (Frame 83)
     redox_consigne: int | None = None
 
     alarme: int = 0
@@ -76,6 +78,8 @@ class RegulatorState:
 
         elif t == 83 and isinstance(decoded, Decoded83):
             self.ph_consigne = decoded.ph_consigne
+            self.err_max     = decoded.err_max
+            self.err_min     = decoded.err_min
 
         elif t == 69 and isinstance(decoded, Decoded69):
             self.redox_consigne = decoded.redox_consigne

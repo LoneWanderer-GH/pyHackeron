@@ -46,6 +46,13 @@ class Database:
         self.conn = sqlite3.connect(_path, check_same_thread=False)
         self.lock = threading.Lock()
 
+        # Mode WAL : lectures non bloquantes pendant les écritures, meilleure
+        # robustesse pour un fonctionnement prolongé (jours / semaines).
+        # synchronous=NORMAL : sécurité suffisante avec WAL (pas de fsync à chaque commit).
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA wal_autocheckpoint=1000")  # checkpoint auto toutes les 1000 pages
+
         self.conn.execute("""
         CREATE TABLE IF NOT EXISTS raw_frames(
             id INTEGER PRIMARY KEY AUTOINCREMENT,

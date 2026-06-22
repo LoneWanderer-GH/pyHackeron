@@ -23,7 +23,7 @@ from corelec.core_logging import attach_qt_log_emitter
 from corelec.ReverseEngineering.ctypes_frames import FrameBase as CFrameBase, Frame65 as CFrame65, Frame69 as CFrame69, Frame77 as CFrame77, Frame83 as CFrame83
 from corelec.UI.reverse_ui import ReverseByteTable, GraphSelectionPanel
 from corelec.UI.signals import signals
-from corelec.UI.widgets import StatusBadge, PolarityWidget
+from corelec.UI.widgets import StatusBadge, PolarityWidget, BoostWidget
 from corelec.net_protocol import FRAME_LABELS
 from corelec.ReverseEngineering.alarm_codes import alarm_elx_text, alarm_rdx_text, warning_text
 
@@ -125,7 +125,8 @@ class Dashboard(QWidget):
         self.temp_value = QLabel("-")
         self.sel_value = QLabel("-")
         self.electro_value = QLabel("-")
-        self.boost_remaining_value = QLabel("-")
+        self.boost_widget = BoostWidget()
+        self._boost_initial_min: int = 0
         self.inversion_timer_value = QLabel("-")
         self.ph_consigne_value = QLabel("-")
         self.redox_consigne_value = QLabel("-")
@@ -166,8 +167,8 @@ class Dashboard(QWidget):
         
         dashboard_info_layout.addWidget(QLabel("Electrolyse:"), 3, 0)
         dashboard_info_layout.addWidget(self.electro_value, 3, 1)
-        dashboard_info_layout.addWidget(QLabel("Boost restant:"), 3, 2)
-        dashboard_info_layout.addWidget(self.boost_remaining_value, 3, 3)
+        dashboard_info_layout.addWidget(QLabel("Boost:"), 3, 2)
+        dashboard_info_layout.addWidget(self.boost_widget, 3, 3)
         
         dashboard_info_layout.addWidget(QLabel("Cpt. inv. polarité:"), 4, 0)
         dashboard_info_layout.addWidget(self.inversion_timer_value, 4, 1)
@@ -195,9 +196,9 @@ class Dashboard(QWidget):
         dashboard_info_layout.addWidget(QLabel("Alarme Régul.:"), 9, 0)
         dashboard_info_layout.addWidget(self.alarm_rdx_value, 9, 1)
         
-        # Appliquer une police agrandie aux valeurs clés
-        for lbl in [self.ph_value, self.redox_value]:
-            lbl.setStyleSheet("font-size:22px; font-weight:700; color:#e8e8e8;")
+        # ph_value : couleur dynamique (cf. _refresh_labels)
+        self.ph_value.setStyleSheet("font-size:22px; font-weight:700; color:#e8e8e8;")
+        self.redox_value.setStyleSheet("font-size:22px; font-weight:700; color:#e8e8e8;")
         for lbl in [self.temp_value, self.sel_value]:
             lbl.setStyleSheet("font-size:17px; font-weight:600;")
 
@@ -981,6 +982,25 @@ class Dashboard(QWidget):
             frame_type, fields, limit, display_step_s=display_step_s
         )
 
+    def _ph_color(self, s: 'RegulatorState') -> str:
+        """Couleur du label pH selon l'état alarme / tolérance / consigne.
+
+        · Rouge  — alarme ELX active OU pH hors seuil err_max
+        · Orange — pH hors seuil err_min (avertissement)
+        · Vert   — pH dans la plage de tolérance
+        · Neutre — données insuffisantes
+        """
+        if s.alarme != 0:
+            return "#e74c3c"
+        if s.ph is None or s.ph_consigne is None:
+            return "#e8e8e8"
+        delta = abs(s.ph - s.ph_consigne)
+        if s.err_max is not None and delta > s.err_max:
+            return "#e74c3c"
+        if s.err_min is not None and delta > s.err_min:
+            return "#e67e22"
+        return "#2ecc71"
+
     def _refresh_labels(self):
         """Mise à jour rapide des labels/checkboxes uniquement — sans accès DB.
         Appelé à chaque trame BLE reçue (via state_updated).
@@ -995,10 +1015,18 @@ class Dashboard(QWidget):
         self.temp_value.setText(_fmt(s.temp))
         self.sel_value.setText(_fmt(s.sel))
         self.electro_value.setText(_fmt(s.current_electrolyse_percent) + " %")
-        self.boost_remaining_value.setText(_fmt(s.boost_remaining_time_min))
+        # Boost widget : suivi de la durée initiale pour calculer le pourcentage
+        if s.boost_active and s.boost_remaining_time_min > self._boost_initial_min:
+            self._boost_initial_min = s.boost_remaining_time_min
+        elif not s.boost_active:
+            self._boost_initial_min = 0
+        self.boost_widget.update_boost(s.boost_active, s.boost_remaining_time_min, self._boost_initial_min)
         self.inversion_timer_value.setText(_fmt(s.inversion_timer_min))
         self.ph_consigne_value.setText(_fmt(s.ph_consigne))
         self.redox_consigne_value.setText(_fmt(s.redox_consigne))
+        # Couleur du pH selon alarme / tolérance / consigne
+        ph_color = self._ph_color(s)
+        self.ph_value.setStyleSheet(f"font-size:22px; font-weight:700; color:{ph_color};")
         self.alarme_value.setText(alarm_elx_text(s.alarme))
         self.alarme_value.setStyleSheet(
             "color:#e74c3c; font-weight:bold;" if s.alarme != 0 else "color:#2ecc71;"

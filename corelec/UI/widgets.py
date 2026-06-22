@@ -2,7 +2,8 @@
 widgets.py — Widgets réutilisables pour l'interface Corelec Monitor.
 
 StatusBadge     Pastille colorée read-only pour états booléens.
-PolarityWidget  Phase A/B + barre de progression du cycle d'inversion.
+PolarityWidget  Phase A/B + barre de progression du cycle d'inversion (texte intégré).
+BoostWidget     Barre de progression du boost avec texte intégré.
 """
 from __future__ import annotations
 
@@ -52,11 +53,12 @@ class StatusBadge(QLabel):
 class PolarityWidget(QWidget):
     """Affiche la phase courante de polarité A/B + progression du timer d'inversion.
 
+    Le texte (phase, minuterie, pourcentage) est affiché directement sur la
+    barre de progression — un seul widget au lieu de label + barre séparés.
+
     Visual ::
-        ┌────────────────────────────────────────────┐
-        │  [A]  Phase A — 180 / 240 min (75%)        │
-        │       ████████████████░░░░░░               │
-        └────────────────────────────────────────────┘
+        [A]  Phase A — 180 / 240 min (75 %)
+             ████████████████░░░░░░
     """
 
     _STYLE_A = (
@@ -75,6 +77,12 @@ class PolarityWidget(QWidget):
         "max-width:52px; max-height:52px;"
     )
 
+    _BAR_BASE = (
+        "QProgressBar {{ border:1px solid #555; border-radius:5px; background:#2a2a2a; "
+        "color:{fg}; font-size:12px; }}"
+        "QProgressBar::chunk {{ background:{chunk}; border-radius:4px; }}"
+    )
+
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
@@ -85,28 +93,17 @@ class PolarityWidget(QWidget):
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge.setStyleSheet(self._STYLE_UNKNOWN)
 
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(4)
-
-        self._info_label = QLabel("Inversion de polarité")
-        self._info_label.setStyleSheet("font-size:12px; color:#bbb;")
-
         self._bar = QProgressBar()
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
-        self._bar.setTextVisible(False)
-        self._bar.setFixedHeight(12)
-        self._bar.setStyleSheet(
-            "QProgressBar { border:1px solid #555; border-radius:5px; background:#2a2a2a; }"
-            "QProgressBar::chunk { background:#27ae60; border-radius:4px; }"
-        )
-
-        right.addWidget(self._info_label)
-        right.addWidget(self._bar)
+        self._bar.setTextVisible(True)
+        self._bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._bar.setFormat("Inversion de polarité")
+        self._bar.setFixedHeight(24)
+        self._bar.setStyleSheet(self._BAR_BASE.format(fg="white", chunk="#555"))
 
         layout.addWidget(self._badge)
-        layout.addLayout(right)
+        layout.addWidget(self._bar)
 
     def update_state(self, phase_a: bool, timer_min: int, period_min: int) -> None:
         self._badge.setText("A" if phase_a else "B")
@@ -114,16 +111,64 @@ class PolarityWidget(QWidget):
         if period_min > 0:
             pct = min(100, int(timer_min * 100 / period_min))
             self._bar.setValue(pct)
-            bar_style = self._bar.styleSheet()
-            # Phase B → barre bleue
-            color = "#27ae60" if phase_a else "#2980b9"
-            self._bar.setStyleSheet(
-                f"QProgressBar {{ border:1px solid #555; border-radius:5px; background:#2a2a2a; }}"
-                f"QProgressBar::chunk {{ background:{color}; border-radius:4px; }}"
-            )
-            self._info_label.setText(
-                f"Phase {'A' if phase_a else 'B'} — {timer_min} / {period_min} min ({pct} %)"
+            chunk = "#27ae60" if phase_a else "#2980b9"
+            self._bar.setStyleSheet(self._BAR_BASE.format(fg="white", chunk=chunk))
+            self._bar.setFormat(
+                f"Phase {'A' if phase_a else 'B'}"
+                f" \u2014 {timer_min} / {period_min} min ({pct} %%)"
             )
         else:
             self._bar.setValue(0)
-            self._info_label.setText("—")
+            self._bar.setStyleSheet(self._BAR_BASE.format(fg="#888", chunk="#555"))
+            self._bar.setFormat("—")
+
+
+class BoostWidget(QProgressBar):
+    """Barre de progression du boost électrolyse avec texte intégré.
+
+    Quand le boost est inactif la barre est vide et affiche « — ».
+    Quand le boost est actif, la barre décroît depuis la durée initiale
+    jusqu'à 0 et affiche « Boost actif — X min restantes ».
+    """
+
+    _BAR_ACTIVE = (
+        "QProgressBar { border:1px solid #555; border-radius:5px; background:#2a2a2a; "
+        "color:white; font-size:12px; }"
+        "QProgressBar::chunk { background:#e67e22; border-radius:4px; }"
+    )
+    _BAR_INACTIVE = (
+        "QProgressBar { border:1px solid #555; border-radius:5px; background:#2a2a2a; "
+        "color:#888; font-size:12px; }"
+        "QProgressBar::chunk { background:#444; border-radius:4px; }"
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setRange(0, 100)
+        self.setValue(0)
+        self.setTextVisible(True)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setFormat("—")
+        self.setFixedHeight(22)
+        self.setStyleSheet(self._BAR_INACTIVE)
+
+    def update_boost(self, active: bool, remaining_min: int, total_min: int = 0) -> None:
+        """Met à jour la barre de boost.
+
+        Args:
+            active:        True si le boost est en cours.
+            remaining_min: minutes restantes.
+            total_min:     durée initiale (0 = inconnue → barre pleine).
+        """
+        if not active or remaining_min <= 0:
+            self.setValue(0)
+            self.setFormat("—")
+            self.setStyleSheet(self._BAR_INACTIVE)
+        else:
+            if total_min > 0:
+                pct = max(1, min(100, int(remaining_min * 100 / total_min)))
+            else:
+                pct = 100
+            self.setValue(pct)
+            self.setFormat(f"Boost actif \u2014 {remaining_min} min restantes")
+            self.setStyleSheet(self._BAR_ACTIVE)

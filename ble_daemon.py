@@ -96,6 +96,8 @@ class StatusBoard:
         self.retry:        int   = 0
         self.rssi:         int   = 0
         self.ble_uptime:   float = 0.0
+        self.conn_elapsed: int   = 0
+        self.conn_timeout: int   = 120
         self.pkt_sent:     int   = 0
         self.pkt_recv:     int   = 0
         # compteurs de trames par type
@@ -117,6 +119,8 @@ class StatusBoard:
             self.ble_uptime   = m.connection_uptime_s
             self.pkt_sent     = m.packets_sent
             self.pkt_recv     = m.packets_received
+            self.conn_elapsed = info.elapsed
+            self.conn_timeout = info.timeout or 120
             if info.state == "connected" and prev_state != "connected":
                 self.conn_established_at = datetime.now()
 
@@ -180,9 +184,22 @@ class StatusBoard:
             tbl.add_row("BLE",
                         _Text(f"● {self.conn_state.upper()}", style=state_style),
                         "Daemon",     f"actif {up:.0f}s")
+            # Ligne 2 : message + indicateur connecting/retry
+            if self.conn_state == "connecting" and self.conn_timeout > 0:
+                pct = min(1.0, self.conn_elapsed / self.conn_timeout)
+                filled = int(pct * 16)
+                bar_str = "\u2588" * filled + "\u2591" * (16 - filled)
+                conn_detail = _Text(
+                    f"[{bar_str}] {self.conn_elapsed}/{self.conn_timeout}s  essai {self.retry}",
+                    style="yellow",
+                )
+            elif self.conn_state == "error":
+                conn_detail = _Text(self.conn_message or "\u2014", style="bold red", overflow="ellipsis")
+            else:
+                conn_detail = _Text(self.conn_message or "\u2014", overflow="ellipsis")
             tbl.add_row("",
-                        _Text(self.conn_message or "—", overflow="ellipsis"),
-                        "Retries",    str(self.retry))
+                        conn_detail,
+                        "Retries",    _Text(str(self.retry), style="bold yellow" if self.retry > 5 else "white"))
             tbl.add_row("BLE établi",
                         _Text(est_str, style="dim white"),
                         "Silence",    _Text(silence_str, style=silence_style))
@@ -377,6 +394,7 @@ class BLEDaemon:
         self._stop = False
         self.board = board
         self._last_conn_payload: dict | None = None
+        self._last_conn_state:   str         = ""
 
     # ------------------------------------------------------------------
     # Callbacks signaux → ZMQ
@@ -408,7 +426,19 @@ class BLEDaemon:
         self._last_conn_payload = payload
         if self.board:
             self.board.update_connection(info)
-        logger.info("[BLE] %s — %s", info.state, info.message)
+        # Ne loguer qu'au changement d'état pour éviter le spam pendant les retries.
+        # "connecting" : DEBUG (très fréquent pendant le timeout).
+        # "error"      : WARNING (indique un échec à retenir).
+        if info.state != self._last_conn_state:
+            if info.state in ('connected', 'disconnected'):
+                logger.info("[BLE] %s \u2014 %s", info.state, info.message)
+            elif info.state == 'error':
+                logger.warning("[BLE] erreur \u2014 %s", info.message)
+            else:  # 'connecting'
+                logger.debug("[BLE] %s \u2014 %s", info.state, info.message)
+            self._last_conn_state = info.state
+        else:
+            logger.debug("[BLE] %s \u2014 %s", info.state, info.message)
 
     def _on_state_updated(self) -> None:
         try:
@@ -467,7 +497,7 @@ class BLEDaemon:
                     pass
 
     async def _run_acquisition_loop(self) -> None:
-        """Boucle de reconnexion — relance Acquisition.run() indéfiniment."""
+        """Boucle de reconnexion avec backoff progressif (3 s → 30 s max)."""
         retry = 0
         while not self._stop:
             self.acq.retry_count = retry
@@ -478,8 +508,14 @@ class BLEDaemon:
             if self._stop:
                 break
             retry += 1
-            logger.info("Reconnexion dans 3 s (essai %d)…", retry)
-            await asyncio.sleep(3)
+            # Backoff : de 3 s à 30 s. Permet au régulateur de démarrer
+            # sans inonder le stack BLE de tentatives de connexion.
+            delay = min(3.0 + retry * 1.0, 30.0)
+            if retry <= 3 or retry % 20 == 0:
+                logger.info("Reconnexion dans %.0fs (essai %d)…", delay, retry)
+            else:
+                logger.debug("Reconnexion dans %.0fs (essai %d)…", delay, retry)
+            await asyncio.sleep(delay)
 
     async def run(self) -> None:
         tasks = [

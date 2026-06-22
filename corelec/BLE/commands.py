@@ -14,11 +14,17 @@ AVERTISSEMENT DE SÉCURITÉ :
     (guix77/esphome-akeron-salt-duo). L'envoi de commandes est donc à sécuriser
     côté application (UI, accès réseau).
 
-Utilisation :
-    from corelec.BLE.commands import build_command_boost_start, send_command
-    frame = build_command_boost_start(120)   # boost 2h
-    # via Acquisition :
-    await send_command(client, frame)
+Architecture :
+    Séparation des responsabilités sur le modèle de ctypes_frames.py / types.py :
+
+    · CmdFrame65/69/83  — déclarations ctypes BigEndianStructure : source unique
+                          de vérité pour le format de chaque octet de la trame.
+                          Toute modification du protocole se fait ici.
+
+    · build_command_*   — logique métier : validation, plafonnement, instanciation
+                          via _new_cmd/_seal ; aucune constante d offset codée en dur.
+
+    · build_from_payload — dispatch par payload dict (bus / ZMQ).
 
 Types de trames de commande :
     65 (A) — Électrolyse : production %, boost, volet
@@ -27,196 +33,149 @@ Types de trames de commande :
 """
 from __future__ import annotations
 
+import ctypes
+from ctypes import BigEndianStructure, c_uint8, c_uint16
 from typing import Any
 
 from bleak import BleakClient
 
 from corelec.BLE.frame import crc
 
-# UUID de la caractéristique GATT (identique pour lecture et écriture)
 CHAR_UUID = "e7add780-b042-4876-aae1-112855353cc1"
 
-FRAME_MARKER = 0x2A
-CMD_FRAME_LEN = 17
-BOOST_DURATION_MAX = 480   # 8 heures — cap de sécurité (sanity cap)
+FRAME_MARKER       = 0x2A
+CMD_FRAME_LEN      = 17
+BOOST_DURATION_MAX = 480
 
 
-# ---------------------------------------------------------------------------
-# Helpers internes
-# ---------------------------------------------------------------------------
+class CmdFrame83(BigEndianStructure):
+    """Trame de commande 83 — Consigne pH.
+    bytes 2-3  ph_x100 : pH x100 big-endian  (735 -> 7.35)
+    bytes 4-14 _rN     : réservés 0xFF
+    """
+    _pack_ = 1
+    _fields_ = [
+        ('sync',    c_uint8),
+        ('typ',     c_uint8),
+        ('ph_x100', c_uint16),
+        ('_r4',     c_uint8), ('_r5',  c_uint8), ('_r6',  c_uint8),
+        ('_r7',     c_uint8), ('_r8',  c_uint8), ('_r9',  c_uint8),
+        ('_r10',    c_uint8), ('_r11', c_uint8), ('_r12', c_uint8),
+        ('_r13',    c_uint8), ('_r14', c_uint8),
+        ('crc',     c_uint8),
+        ('end',     c_uint8),
+    ]
 
-def _base_frame(frame_type: int) -> bytearray:
-    """Crée une trame initialisée avec 0xFF pour les bytes payload."""
-    buf = bytearray([0xFF] * CMD_FRAME_LEN)
-    buf[0] = FRAME_MARKER
-    buf[1] = frame_type
-    buf[16] = FRAME_MARKER
-    return buf
+
+class CmdFrame69(BigEndianStructure):
+    """Trame de commande 69 — Consigne Redox.
+    bytes 2-3  rdx  : Redox mV big-endian
+    bytes 4-14 _rN  : réservés 0xFF
+    """
+    _pack_ = 1
+    _fields_ = [
+        ('sync',  c_uint8),
+        ('typ',   c_uint8),
+        ('rdx',   c_uint16),
+        ('_r4',   c_uint8), ('_r5',  c_uint8), ('_r6',  c_uint8),
+        ('_r7',   c_uint8), ('_r8',  c_uint8), ('_r9',  c_uint8),
+        ('_r10',  c_uint8), ('_r11', c_uint8), ('_r12', c_uint8),
+        ('_r13',  c_uint8), ('_r14', c_uint8),
+        ('crc',   c_uint8),
+        ('end',   c_uint8),
+    ]
 
 
-def _seal(buf: bytearray) -> bytes:
-    """Calcule et insère le CRC (XOR bytes 0–14) puis retourne bytes."""
-    buf[15] = crc(buf[:15])
-    return bytes(buf)
+class CmdFrame65(BigEndianStructure):
+    """Trame de commande 65 — Électrolyse / Boost / Volet.
+    byte  2      elx_pct   : production %  (0xFF = inchangé)
+    bytes 3-4    boost_min : durée boost minutes BE  (0=stop, 0xFFFF=inchangé)
+    bytes 5-9    _rN       : réservés 0xFF
+    byte  10     io_flags  : bit3=volet_force  (0xFF = inchangé)
+    bytes 11-14  _rN       : réservés 0xFF
+    """
+    _pack_ = 1
+    _fields_ = [
+        ('sync',      c_uint8),
+        ('typ',       c_uint8),
+        ('elx_pct',   c_uint8),
+        ('boost_min', c_uint16),
+        ('_r5',  c_uint8), ('_r6',  c_uint8), ('_r7',  c_uint8),
+        ('_r8',  c_uint8), ('_r9',  c_uint8),
+        ('io_flags',  c_uint8),
+        ('_r11', c_uint8), ('_r12', c_uint8), ('_r13', c_uint8), ('_r14', c_uint8),
+        ('crc',       c_uint8),
+        ('end',       c_uint8),
+    ]
 
 
-# ---------------------------------------------------------------------------
-# Commandes trame 83 (S) — Consigne pH
-# ---------------------------------------------------------------------------
+def _new_cmd(cmd_cls: type) -> BigEndianStructure:
+    """Instancie une trame initialisée à 0xFF (reserved) avec sync positionné."""
+    f = cmd_cls.from_buffer_copy(bytes([0xFF] * CMD_FRAME_LEN))
+    f.sync = FRAME_MARKER
+    return f
+
+
+def _seal(f: BigEndianStructure) -> bytes:
+    """CRC = XOR(bytes 0-14), end = 0x2A, retourne bytes."""
+    f.crc = crc(bytes(f)[:15])
+    f.end = FRAME_MARKER
+    return bytes(f)
+
 
 def build_command_ph_setpoint(consigne: float) -> bytes:
-    """Trame de commande : consigne pH.
+    f = _new_cmd(CmdFrame83)
+    f.typ     = 83
+    f.ph_x100 = round(consigne * 100)
+    return _seal(f)
 
-    Args:
-        consigne: valeur cible ex. 7.35. Encodée ×100 en big-endian bytes[2..3].
-                  Plage recommandée : 6.5–8.0.
-
-    Returns:
-        17 octets prêts à écrire sur la caractéristique GATT.
-    """
-    buf = _base_frame(83)
-    val = round(consigne * 100)
-    buf[2] = (val >> 8) & 0xFF
-    buf[3] = val & 0xFF
-    return _seal(buf)
-
-
-# ---------------------------------------------------------------------------
-# Commandes trame 69 (E) — Consigne Redox
-# ---------------------------------------------------------------------------
 
 def build_command_redox_setpoint(setpoint_mv: float) -> bytes:
-    """Trame de commande : consigne Redox.
+    f = _new_cmd(CmdFrame69)
+    f.typ = 69
+    f.rdx = round(setpoint_mv)
+    return _seal(f)
 
-    Args:
-        setpoint_mv: valeur cible en mV ex. 750. Encodée en big-endian bytes[2..3].
-                     Plage recommandée : 400–1100 mV.
-
-    Returns:
-        17 octets prêts à écrire sur la caractéristique GATT.
-    """
-    buf = _base_frame(69)
-    val = round(setpoint_mv)
-    buf[2] = (val >> 8) & 0xFF
-    buf[3] = val & 0xFF
-    return _seal(buf)
-
-
-# ---------------------------------------------------------------------------
-# Commandes trame 65 (A) — Électrolyse, Boost, Volet
-# ---------------------------------------------------------------------------
 
 def build_command_elx_production(percent: int) -> bytes:
-    """Trame de commande : taux de production d'électrolyse.
-
-    Args:
-        percent: 0–100 (multiple de 10 recommandé selon appareil).
-                 Encodé directement dans byte[2].
-
-    Returns:
-        17 octets prêts à écrire sur la caractéristique GATT.
-    """
     if not 0 <= percent <= 100:
         raise ValueError(f"percent hors plage [0, 100] : {percent}")
-    buf = _base_frame(65)
-    buf[2] = percent & 0xFF
-    return _seal(buf)
+    f = _new_cmd(CmdFrame65)
+    f.typ     = 65
+    f.elx_pct = percent
+    return _seal(f)
 
 
 def build_command_boost_start(minutes: int) -> bytes:
-    """Trame de commande : démarrage du boost électrolyse.
-
-    Args:
-        minutes: durée du boost en minutes. Plafonné à BOOST_DURATION_MAX (480 min = 8h).
-                 Encodé en big-endian bytes[3..4].
-
-    Returns:
-        17 octets prêts à écrire sur la caractéristique GATT.
-
-    Raises:
-        ValueError: si minutes <= 0.
-    """
     if minutes <= 0:
-        raise ValueError(f"minutes doit être > 0 : {minutes}")
+        raise ValueError(f"minutes doit etre > 0 : {minutes}")
     minutes = min(minutes, BOOST_DURATION_MAX)
-    buf = _base_frame(65)
-    buf[3] = (minutes >> 8) & 0xFF
-    buf[4] = minutes & 0xFF
-    return _seal(buf)
+    f = _new_cmd(CmdFrame65)
+    f.typ       = 65
+    f.boost_min = minutes
+    return _seal(f)
 
 
 def build_command_boost_stop() -> bytes:
-    """Trame de commande : arrêt du boost électrolyse (remet bytes[3..4] à 0x0000).
-
-    Returns:
-        17 octets prêts à écrire sur la caractéristique GATT.
-    """
-    buf = _base_frame(65)
-    buf[3] = 0x00
-    buf[4] = 0x00
-    return _seal(buf)
+    f = _new_cmd(CmdFrame65)
+    f.typ       = 65
+    f.boost_min = 0
+    return _seal(f)
 
 
 def build_command_cover_force(state: bool, current_a10: int) -> bytes:
-    """Trame de commande : forçage du volet (cover).
+    f = _new_cmd(CmdFrame65)
+    f.typ      = 65
+    mask       = 1 << 3
+    f.io_flags = (current_a10 | mask) if state else (current_a10 & ~mask & 0xFF)
+    return _seal(f)
 
-    Bascule le bit 3 de byte[10] en préservant tous les autres bits.
-    Il est impératif de passer la dernière valeur de io_flags reçue (byte 10
-    de la dernière trame 65) pour ne pas écraser les autres bits.
-
-    Args:
-        state: True = activer le forçage, False = désactiver.
-        current_a10: dernière valeur de io_flags (byte 10) reçue depuis l'appareil.
-
-    Returns:
-        17 octets prêts à écrire sur la caractéristique GATT.
-    """
-    buf = _base_frame(65)
-    mask = 1 << 3   # bit3 = volet_force
-    buf[10] = (current_a10 | mask) if state else (current_a10 & ~mask & 0xFF)
-    return _seal(buf)
-
-
-# ---------------------------------------------------------------------------
-# Envoi effectif via BleakClient
-# ---------------------------------------------------------------------------
 
 async def send_command(client: BleakClient, frame: bytes) -> None:
-    """Écrit une trame de commande sur la caractéristique GATT.
-
-    Utilise write_gatt_char avec response=True pour garantir l'acquittement
-    (ATT Write Request / Write Response), plus fiable qu'un Write Command
-    sans réponse pour les commandes de consigne.
-
-    Args:
-        client: BleakClient connecté et actif.
-        frame:  17 octets produits par l'un des build_command_* ci-dessus.
-
-    Raises:
-        BleakError: si la caractéristique n'est pas accessible ou si la
-                    connexion est perdue.
-    """
     await client.write_gatt_char(CHAR_UUID, frame, response=True)
 
 
-# ---------------------------------------------------------------------------
-# Dispatch par payload dict (bus / ZMQ)
-# ---------------------------------------------------------------------------
-
 def build_from_payload(payload: dict[str, Any]) -> bytes | None:
-    """Construit une trame de commande à partir d'un payload dict.
-
-    Format du payload :
-        {'type': 'ph_setpoint',    'value': 7.35}
-        {'type': 'redox_setpoint', 'value': 730}
-        {'type': 'elx_production', 'value': 70}
-        {'type': 'boost_start',    'minutes': 120}
-        {'type': 'boost_stop'}
-        {'type': 'cover_force',    'state': True, 'a10': 0x24}
-
-    Returns:
-        17 octets prêts à écrire, ou None si le type est inconnu / paramètres invalides.
-    """
     cmd_type = payload.get('type')
     try:
         if cmd_type == 'ph_setpoint':
@@ -234,6 +193,6 @@ def build_from_payload(payload: dict[str, Any]) -> bytes | None:
     except (KeyError, ValueError, TypeError) as exc:
         import logging
         logging.getLogger(__name__).error(
-            "build_from_payload: paramètres invalides pour '%s': %s", cmd_type, exc
+            "build_from_payload: parametres invalides pour '%s': %s", cmd_type, exc
         )
     return None
