@@ -117,6 +117,8 @@ Sérialisation : **JSON UTF-8** — lisible depuis n'importe quel langage/platef
 
 ## Protocole BLE
 
+Format général des trames (17 octets) :
+
 | Champ      | Octets | Description                              |
 |------------|--------|------------------------------------------|
 | Sync start | 0      | `0x2A` (42)                              |
@@ -125,14 +127,15 @@ Sérialisation : **JSON UTF-8** — lisible depuis n'importe quel langage/platef
 | CRC        | 15     | XOR des octets 0–14                      |
 | Sync end   | 16     | `0x2A` (42)                              |
 
-### Types de trames décodés
+| Type | Contenu principal                                               |
+|------|-----------------------------------------------------------------|
+| 77   | pH, Redox, Température, Sel, Alarmes, Pompe pH−, Pompe chl/élx |
+| 83   | Consigne pH, erreur max/min                                     |
+| 65   | Électrolyse %, Boost, Inversion de polarité, Flow switch, Volet |
+| 69   | Consigne Redox                                                  |
 
-| Type | Contenu                                                              |
-|------|----------------------------------------------------------------------|
-| 77   | pH, Redox, Température, Sel, Alarmes, Pompe pH−, Pompe chl/élx      |
-| 83   | Consigne pH, erreur max/min                                          |
-| 65   | Électrolyse %, Boost, Cycle A/B, Flow switch, Volet                 |
-| 69   | Consigne Redox                                                       |
+> **Détail complet byte par byte, état du reverse engineering et champs inconnus :**  
+> voir **[PROTOCOL.md](PROTOCOL.md)**
 
 ---
 
@@ -154,8 +157,7 @@ Sérialisation : **JSON UTF-8** — lisible depuis n'importe quel langage/platef
   - Coloration : vert = octet décodé connu, orange = inconnu
   - Clic droit sur une sélection : interprétation uint16, int16, float16, ASCII, bitmask
   - Case à cocher « Plot » pour tracer un octet ou une interprétation multi-octets
-- Graphe libre — séries ajoutées manuellement, gestion dans le panneau de droite
-
+- Graphe libre — séries ajoutées manuellement, gestion dans le panneau de droite- État actuel du reverse engineering et liste des champs inconnus : **[PROTOCOL.md](PROTOCOL.md)**
 ### Logs
 - Vue console avec coloration par niveau (DEBUG/INFO/WARNING/ERROR)
 
