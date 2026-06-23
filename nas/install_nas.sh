@@ -40,6 +40,7 @@ VENV_DIR="$INSTALL_DIR/venv"
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG_DIR="/etc/corelec"
 SERVICE_NAME="corelec-web"
+SERVICE_USER="corelec"
 # /usr/local/lib/systemd/system/ est l'emplacement recommandé sur Synology
 # pour les services tiers — non écrasé par les mises à jour DSM
 SERVICE_DIR="/usr/local/lib/systemd/system"
@@ -124,6 +125,26 @@ EOF
 chmod 600 "$CONFIG_DIR/web.env"
 
 # ---------------------------------------------------------------------------
+# Utilisateur dédié
+# ---------------------------------------------------------------------------
+if ! id -u "$SERVICE_USER" &>/dev/null; then
+    info "Création de l'utilisateur système $SERVICE_USER…"
+    useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER" \
+        || error "Impossible de créer l'utilisateur $SERVICE_USER."
+fi
+
+info "Attribution des permissions à $SERVICE_USER…"
+# Conserver root comme propriétaire ; donner au groupe $SERVICE_USER le droit
+# de lecture/traversal (sécurité : le service ne peut pas modifier ses propres
+# binaires ou bibliothèques en cas de compromission).
+chown -R root:"$SERVICE_USER" "$INSTALL_DIR"
+chmod -R g+rX "$INSTALL_DIR"
+# Le fichier de configuration contient des valeurs potentiellement sensibles :
+# accès réservé à root et au groupe $SERVICE_USER (pas de lecture publique).
+chown root:"$SERVICE_USER" "$CONFIG_DIR/web.env"
+chmod 640 "$CONFIG_DIR/web.env"
+
+# ---------------------------------------------------------------------------
 # Service systemd
 # ---------------------------------------------------------------------------
 info "Installation du service systemd $SERVICE_NAME…"
@@ -137,7 +158,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=$SERVICE_USER
 WorkingDirectory=$INSTALL_DIR
 EnvironmentFile=$CONFIG_DIR/web.env
 ExecStart=$VENV_DIR/bin/python $INSTALL_DIR/web_server.py
