@@ -165,7 +165,8 @@ sleep 2
 STATUS=$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)
 if [[ "$STATUS" == "active" ]]; then
     info "✓ Service $SERVICE_NAME démarré avec succès"
-    info "  Dashboard : http://$(hostname -I | awk '{print $1}'):$HTTP_PORT"
+    # info "  Dashboard : http://$(hostname -I | awk '{print $1}'):$HTTP_PORT"
+    info "  Dashboard : http://$(hostname | awk '{print $1}'):$HTTP_PORT"
 else
     warn "  Service status : $STATUS"
     warn "  Voir les logs : journalctl -fu $SERVICE_NAME"
