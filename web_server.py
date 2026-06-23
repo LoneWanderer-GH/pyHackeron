@@ -408,8 +408,11 @@ def main() -> None:
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
+    env_level_name = os.environ.get("CORELEC_LOG_LEVEL", "INFO").upper()
+    env_level = getattr(logging, env_level_name, logging.INFO)
+
     logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.INFO,
+        level=logging.DEBUG if args.debug else env_level,
         format="%(asctime)s %(name)-24s %(levelname)s %(message)s",
     )
 
