@@ -1,0 +1,23 @@
+[Unit]
+Description=Corelec Web Server
+Documentation=file:///volume1/corelec/docs/INSTALL.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/volume1/corelec
+EnvironmentFile=/etc/corelec/web.env
+ExecStart=/volume1/corelec/venv/bin/python /volume1/corelec/web_server.py
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=corelec-web
+
+[Install]
+WantedBy=multi-user.target
