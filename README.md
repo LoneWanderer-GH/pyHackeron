@@ -1,343 +1,79 @@
 # Corelec Monitor
 
-Outil de supervision et de rétro-ingénierie d'un régulateur de piscine **Corelec** via BLE.  
-Le régulateur communique en Bluetooth Low Energy ; ce projet intercepte, décode et affiche les données en temps réel, et permet d'explorer les trames inconnues.
+Supervision et rétro-ingénierie d'un régulateur de piscine **Corelec / Akeron** via BLE.  
+Intercepte, décode et affiche les trames en temps réel. Architecture daemon headless (Pi3) + UI Qt + serveur web + intégrations HomeKit / MagicMirror.
 
----
-
-## Architecture déployée
+## Architecture
 
 ```
-┌─────────────────────────────────┐         ┌─────────────────────────────────┐
-│  Raspberry Pi 3 (headless)      │   ZMQ   │  PC / Mac / Linux (UI Qt)       │
-│                                 │  PUB/   │                                 │
-│  ble_daemon.py                  │◄──────► │  monitor.py --network <IP>      │
-│  ├── BLE (bleak)                │  PUSH   │  ├── NetworkClient (ZMQ SUB)    │
-│  ├── Decoder                    │         │  ├── Dashboard Qt               │
-│  ├── SQLite (pool.db)           │         │  └── SQLite locale (optionnel)  │
-│  └── ZMQ PUB :5555 CMD :5556    │         │                                 │
-└─────────────────────────────────┘         └─────────────────────────────────┘
++------------------------------------------+   ZMQ PUB/PULL   +------------------------------------------+
+|  Raspberry Pi 3                          | <--------------> |  PC / Mac                                |
+|  ble_daemon.py                           |                  |  monitor.py --network IP                 |
+|  BLE . Decoder . SQLite                  |                  |  Dashboard Qt                            |
+|  :5555 PUB  :5556 PULL                   |                  +------------------------------------------+
++---------------------+--------------------+
+                      | ZMQ SUB
+                      v
+             web_server.py  ->  http://nas:8080
+             Dashboard HTML . /api/state . /api/stream (SSE)
+             -> MagicMirror2 . Homebridge / HomeKit
 ```
 
-Le PC peut aussi se connecter directement en BLE (mode direct, sans Pi) :
-```
-  monitor.py --address B4:E3:F9:5A:0A:13
-```
+Mode direct sans Pi :  `python monitor.py --address B4:E3:F9:5A:0A:13`
 
 ---
 
-## Structure des fichiers
-
-```
-ble_daemon.py                 Démon headless (BLE → ZMQ + SQLite)
-monitor.py                    Interface graphique Qt (mode BLE direct ou réseau)
-raspi/
-├── install_raspi.sh          Script d'installation automatique sur Pi3
-├── corelec-daemon.service    Unité systemd
-└── config.env.example        Modèle de configuration
-corelec/
-├── net_protocol.py           Protocole réseau (topics ZMQ, sérialisation JSON)
-├── net_client.py             Client réseau ZMQ pour l'UI
-├── BLE/                      Acquisition BLE (bleak), parsing trames, types
-│   ├── Acquisition.py        Boucle async BLE, séquence de polling
-│   ├── bluetooth.py          Constructeur de paquet « ask »
-│   ├── frame.py              Parsing trame (sync=42, CRC XOR, 17 octets)
-│   ├── stream.py             Réassemblage flux BLE → trames complètes
-│   └── types.py              Dataclasses Decoded65/69/77/83, ConnectionInfo…
-├── Analyse/
-│   ├── database.py           SQLite — stockage trames brutes (source unique de vérité)
-│   └── model.py              RegulatorState — état courant du régulateur
-├── ReverseEngineering/
-│   ├── decoder.py            Décodeur des 4 types de trames (77/83/65/69)
-│   └── ctypes_frames.py      Structures ctypes pour la vue byte-par-byte de l'UI
-├── UI/
-│   ├── qt_compat.py          Couche de compatibilité Qt (PyQt5/6, PySide2/6)
-│   ├── signals.py            Signaux Qt inter-couches
-│   ├── dashboard.py          Dashboard principal (graphiques, métriques, logs)
-│   └── reverse_ui.py         Panneau rétro-ingénierie (table bytes, tracé libre)
-├── core_logging.py           Logging coloré + redirection HTML vers l'UI Qt
-├── requirements_daemon.txt   Pi3 headless uniquement (bleak + pyzmq)
-├── requirements_raspi3.txt   Pi3 avec UI Qt (via apt)
-└── requirements_windows.txt  Desktop (PyQt6 + pyzmq)
-ada/                          Bibliothèque Ada 2022 (logique métier, API C)
-esp32/                        Firmware ESP32 — client BLE NimBLE + passerelle MQTT
-```
-
----
-
-## Stockage SQLite
-
-Seule la table **`raw_frames`** est la source de vérité pour l'historique :
-
-| Table           | Colonnes                              | Rôle                                      |
-|-----------------|---------------------------------------|-------------------------------------------|
-| `raw_frames`    | id, ts, frame_type, frame_hex         | Toutes les trames reçues (hex 17 octets)  |
-| `decoded_values`| id, ts, name, value                   | Conservée pour compatibilité, non écrite  |
-| `frame_bytes`   | id, ts, frame_type, byte_index, value | Conservée pour compatibilité, non écrite  |
-
-Les graphiques de l'UI décodent à la volée depuis `raw_frames` au moment du chargement.  
-Lors d'un **Sync DB**, seule la table `raw_frames` est transférée depuis le daemon vers l'UI.
-
----
-
-## Protocole réseau ZeroMQ
-
-Transport : **ZMQ PUB/SUB** (daemon → UI) + **ZMQ PUSH/PULL** (UI → daemon).  
-Sérialisation : **JSON UTF-8** — lisible depuis n'importe quel langage/plateforme.
-
-### Topics (stables — compatibles MQTT / Home Assistant / Jeedom)
-
-| Topic                 | Direction     | Description                                 |
-|-----------------------|---------------|---------------------------------------------|
-| `corelec/connection`  | daemon → UI   | Statut BLE, métriques réseau                |
-| `corelec/state`       | daemon → UI   | Snapshot complet du RegulatorState (~2 s)   |
-| `corelec/value`       | daemon → UI   | Une valeur par message `{name, value, ts}`  |
-| `corelec/frame/raw`   | daemon → UI   | Trame brute hex pour rétro-ingénierie       |
-| `corelec/db/sync`     | daemon → UI   | Chunk d'export SQLite (réponse à cmd)       |
-| `corelec/cmd/retry`   | UI → daemon   | Demande de reconnexion BLE                  |
-| `corelec/cmd/cancel`  | UI → daemon   | Arrêt de la connexion                       |
-| `corelec/cmd/db_sync` | UI → daemon   | Demande d'export SQLite                     |
-
-### Ports par défaut
-
-| Port | Usage                    |
-|------|--------------------------|
-| 5555 | ZMQ PUB (daemon publie)  |
-| 5556 | ZMQ PULL (daemon écoute) |
-
-### Codes statut connexion (`corelec/connection`)
-
-| Code | Nom           |
-|------|---------------|
-| 0    | disconnected  |
-| 1    | connecting    |
-| 2    | connected     |
-| 3    | error         |
-
----
-
-## Protocole BLE
-
-Format général des trames (17 octets) :
-
-| Champ      | Octets | Description                              |
-|------------|--------|------------------------------------------|
-| Sync start | 0      | `0x2A` (42)                              |
-| Type       | 1      | 77 / 83 / 65 / 69                        |
-| Payload    | 2–14   | Données spécifiques au type              |
-| CRC        | 15     | XOR des octets 0–14                      |
-| Sync end   | 16     | `0x2A` (42)                              |
-
-| Type | Contenu principal                                               |
-|------|-----------------------------------------------------------------|
-| 77   | pH, Redox, Température, Sel, Alarmes, Pompe pH−, Pompe chl/élx |
-| 83   | Consigne pH, erreur max/min                                     |
-| 65   | Électrolyse %, Boost, Inversion de polarité, Flow switch, Volet |
-| 69   | Consigne Redox                                                  |
-
-> **Détail complet byte par byte, état du reverse engineering et champs inconnus :**  
-> voir **[PROTOCOL.md](PROTOCOL.md)**
-
----
-
-## Fonctionnalités UI
-
-### Dashboard
-- Valeurs temps réel : pH, Redox, Température, Sel, Électrolyse
-- État des commutateurs : Boost, Flow switch, Volet actif/forcé
-- Métriques BLE : RSSI, paquets envoyés/reçus, uptime
-
-### Graphiques
-- **pH et consigne pH** — axe secondaire droit pour l'état de la pompe pH− (0/1)
-- **Électrolyse % et consigne volet**
-- **Cycles A / B**
-- Curseur interactif (barre verticale + labels valeurs au survol)
-
-### Rétro-ingénierie
-- Table byte-par-byte pour chaque type de trame (65/69/77/83)
-  - Coloration : vert = octet décodé connu, orange = inconnu
-  - Lignes dépliables par octet : chaque bit est affiché individuellement (valeur 0/1), les bits à signification connue sont nommés et colorés différemment
-  - Case à cocher « Plot » par octet **ou par bit** pour tracer une courbe booléenne en temps réel
-  - Clic droit sur une sélection : interprétation uint16, int16, float16, ASCII, bitmask
-- Graphe libre — séries ajoutées manuellement, gestion dans le panneau de droite
-- État actuel du reverse engineering et liste des champs inconnus : **[PROTOCOL.md](PROTOCOL.md)**
-
-![Reverse Engineering](docs/img/reverse_engineering_ui.png)
-### Logs
-- Vue console avec coloration par niveau (DEBUG/INFO/WARNING/ERROR)
-
----
-
-## Installation
-
-### Raspberry Pi 3 — daemon headless (recommandé)
+## Démarrage rapide
 
 ```bash
-# Installation automatique (une seule commande)
+# Pi3 — daemon headless
 sudo bash raspi/install_raspi.sh B4:E3:F9:5A:0A:13
 
-# Ou manuellement :
-pip install -r src/python/requirements_daemon.txt
-python ble_daemon.py --address B4:E3:F9:5A:0A:13
-```
+# PC — interface Qt (mode réseau)
+pip install -r corelec/requirements_windows.txt
+python monitor.py --network 192.168.0.16
 
-> **Remarque PyQt5 / Pi3** : `pip install PyQt5` échoue sur Python 3.9 ARM  
-> (`sipbuild.pyproject.PyProjectOptionException`).  
-> Le daemon headless n'a **aucune dépendance Qt** — seuls `bleak` et `pyzmq` sont nécessaires.  
-> Si l'UI est souhaitée sur le Pi, installer via apt :  
-> ```bash
-> sudo apt-get install python3-pyqt5 python3-pyqtgraph
-> python3 -m venv --system-site-packages venv
-> ```
-
-### Windows / macOS / Linux — interface graphique
-
-```powershell
-python -m venv venv
-venv\Scripts\Activate.ps1          # Windows
-# source venv/bin/activate          # Linux/macOS
-pip install -r src/python/requirements_windows.txt
-
-# Mode réseau (Pi3 comme daemon)
-python monitor.py --network 192.168.1.42
-
-# Mode BLE direct (sans Pi3)
-python monitor.py --address B4:E3:F9:5A:0A:13
-
-# Avec sync DB au démarrage
-python monitor.py --network 192.168.1.42 --sync-db
-```
-
-### Déploiement Pi3 — détails systemd
-
-```bash
-# Vérifier l'état du service
-sudo systemctl status corelec-daemon
-
-# Voir les logs en temps réel
-sudo journalctl -fu corelec-daemon
-
-# Modifier la configuration (adresse BLE, ports…)
-sudo nano /etc/corelec/config.env
-sudo systemctl restart corelec-daemon
+# NAS / serveur — dashboard web
+pip install -r corelec/requirements_web.txt
+python web_server.py --daemon-host 192.168.0.16 --http-port 8080
 ```
 
 ---
 
-## Intégration Home Assistant / Jeedom / Homebridge
+## Documentation
 
-Le topic `corelec/value` publie un message JSON par valeur à chaque mise à jour :
-
-```json
-{"name": "ph", "value": 7.12, "ts": "2026-06-21T10:30:00"}
-{"name": "temp", "value": 26.5, "ts": "2026-06-21T10:30:00"}
-{"name": "current_electrolyse_percent", "value": 75, "ts": "..."}
-```
-
-Pour intégrer dans Home Assistant via MQTT, brancher un bridge ZMQ→MQTT  
-(ex : [zmq2mqtt](https://github.com/mqttjs/MQTT.js)) ou un script Python simple  
-qui subscribe à `corelec/#` et publie sur le broker MQTT local.
-
-Le topic `corelec/state` publie le snapshot complet du `RegulatorState` (~toutes les 2 s),  
-utilisable directement comme entités MQTT JSON dans HA.
-
----
-
-## Fonctionnalités UI
-
-### Dashboard
-- Valeurs temps réel : pH, Redox, Température, Sel, Électrolyse
-- État des commutateurs : Boost, Flow switch, Volet actif/forcé
-- Métriques BLE : RSSI, paquets envoyés/reçus, uptime
-- Bouton **Sync DB** (mode réseau) — télécharge la base distante
-
-![Dashboard](docs/img/main_panel.png)
-
-### Graphiques
-- **pH et consigne pH** — axe secondaire droit pour l'état de la pompe pH− (0/1)
-- **Électrolyse % et consigne volet**
-- **Cycles A / B**
-- Curseur interactif (barre verticale + labels valeurs au survol)
-
-![Graphiques](docs/img/graphics_panel.png)
-
-### Rétro-ingénierie
-- Table byte-par-byte pour chaque type de trame (65/69/77/83)
-  - Coloration : vert = octet décodé connu, orange = inconnu
-  - Lignes dépliables par octet : chaque bit affiche sa valeur (0/1) et son nom si connu
-  - Case à cocher « Plot » par octet **ou par bit** pour tracer une courbe booléenne
-  - Clic droit sur une sélection : interprétation uint16, int16, float16, ASCII, bitmask
-- Graphe libre — séries ajoutées manuellement
-
-![Reverse Engineering](docs/img/reverse_engineering_ui.png)
-
-### Logs
-- Vue console avec coloration par niveau (DEBUG/INFO/WARNING/ERROR)
-
----
-
-## Partie Ada
-
-Bibliothèque Ada 2022 portant la logique métier (machine d'état BLE, décodeur, API C).  
-Conçue pour être compilée en bibliothèque statique et liée depuis n'importe quel backend BLE (BlueZ, BTstack, NimBLE, WinRT).
-
-Le backend est sélectionné par la **variable scénario GPR** `CORELEC_BLE_BACKEND` :
-
-| Valeur | Plateforme | Compilateur |
-|---|---|---|
-| `winrt` | Windows 11 natif | GNAT (msvc-compat) |
-| `btstack_winusb` | Windows (USB dongle) | MinGW-w64 |
-| `btstack_posix` | Linux x86_64 | `x86_64-linux-gnu-gcc` |
-| `nimble_posix` | Linux / cross ARM | `arm-none-eabi-gcc` |
-| `bluez` | Linux (BlueZ) | `x86_64-linux-gnu-gcc` |
-
-```powershell
-cd ada
-alr build -- -XCORELEC_BLE_BACKEND=winrt
-# Télécharger les sources vendeur BTstack / NimBLE si nécessaire :
-# .\backends\fetch_vendors.ps1
-```
-
-Voir [ada/README.md](ada/README.md) pour les détails de cross-compilation.
-
----
-
-## Firmware ESP32
-
-Client BLE NimBLE autonome avec passerelle MQTT — ne nécessite ni Raspberry Pi ni PC.  
-Décode les trames du régulateur et publie chaque valeur sur un broker MQTT (retained, QoS 0).
-
-```bash
-cd esp32
-idf.py menuconfig   # SSID WiFi, MQTT broker, adresse BLE
-idf.py build
-idf.py -p COMx flash monitor
-```
-
-Topics publiés : `corelec/ph`, `corelec/redox`, `corelec/temp`, `corelec/sel`,  
-`corelec/alarme`, `corelec/flow_switch`, `corelec/boost_remaining_min`, etc.
-
-Voir [esp32/README.md](esp32/README.md) pour la liste complète des topics et la procédure de flash.
+| Sujet | Fichier |
+|---|---|
+| Structure du code, SQLite, flux de données | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Protocole BLE (trames, bytes) | [PROTOCOL.md](PROTOCOL.md) |
+| Protocole réseau ZMQ, topics, API HTTP | [docs/NETWORK.md](docs/NETWORK.md) |
+| Installation (Pi3, Windows, systemd, web) | [docs/INSTALL.md](docs/INSTALL.md) |
+| Interface Qt et web | [docs/UI.md](docs/UI.md) |
+| Intégrations (HA, MagicMirror, Homebridge) | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) |
+| Bibliothèque Ada | [ada/README.md](ada/README.md) |
+| Firmware ESP32 NimBLE + MQTT | [esp32/README.md](esp32/README.md) |
 
 ---
 
 ## État du projet
 
-| Composant                        | État               |
-|----------------------------------|--------------------|
-| Acquisition BLE (bleak)          | Fonctionnel        |
-| Décodeur trames 77/83/65/69      | Fonctionnel        |
-| Stockage SQLite                  | Fonctionnel        |
-| Dashboard graphiques             | Fonctionnel        |
-| Rétro-ingénierie UI              | Fonctionnel        |
-| Daemon headless (ble_daemon.py)  | Fonctionnel        |
-| Protocole réseau ZMQ/JSON        | Fonctionnel        |
-| Monitor UI dual-mode             | Fonctionnel        |
-| Sync DB réseau                   | Fonctionnel        |
-| Scripts systemd Pi3              | Fournis            |
-| Compatibilité PyQt5/Pi3 (Qt UI)  | Via apt uniquement |
-| Bibliothèque Ada                 | En cours (0.1-dev) |
-| Backend BLE Ada (BlueZ/BTstack)  | Non démarré        |
+| Composant                        | État                  |
+|----------------------------------|-----------------------|
+| Acquisition BLE (bleak)          | ✅ Fonctionnel        |
+| Décodeur trames 77/83/65/69      | ✅ Fonctionnel        |
+| Stockage SQLite                  | ✅ Fonctionnel        |
+| Dashboard graphiques Qt          | ✅ Fonctionnel        |
+| Rétro-ingénierie UI              | ✅ Fonctionnel        |
+| Daemon headless (ble_daemon.py)  | ✅ Fonctionnel        |
+| Protocole réseau ZMQ/JSON        | ✅ Fonctionnel        |
+| Sync DB réseau                   | ✅ Fonctionnel        |
+| Dashboard web (web_server.py)    | ✅ Fonctionnel        |
+| Plugin MagicMirror²              | ✅ Fourni             |
+| Plugin Homebridge / HomeKit      | ✅ Fourni             |
+| Scripts systemd Pi3              | ✅ Fournis            |
+| Compatibilité PyQt5/Pi3 (Qt UI)  | ⚠ Via apt uniquement |
+| Bibliothèque Ada                 | 🚧 En cours (0.1-dev) |
+| Backend BLE Ada (BlueZ/BTstack)  | ⏳ Non démarré        |
 
 ---
 

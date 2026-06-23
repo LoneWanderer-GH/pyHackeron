@@ -23,30 +23,64 @@ Consomme l'API HTTP du `web_server.py` — aucune dépendance ZMQ directe.
 - Homebridge ≥ 1.6 (Node.js ≥ 18)
 - `web_server.py` en cours d'exécution sur le réseau local
 
-### Copie du plugin
+> **Pourquoi pas un simple `cp` ?**  
+> Homebridge découvre les plugins via `npm` : il inspecte `node_modules/*/package.json`
+> mais ne charge que les packages dont npm a enregistré les métadonnées dans son index local.
+> Un copier-coller ne crée pas cet enregistrement → le plugin est ignoré silencieusement.
+
+### Méthode 1 — `npm install` depuis le chemin local (recommandée)
 
 ```bash
-# Depuis le répertoire plugins de Homebridge (en général ~/.homebridge/node_modules)
-# OU dans le dossier où Homebridge cherche ses plugins :
+# Aller dans le dossier de stockage Homebridge
+cd /var/lib/homebridge          # Homebridge installé via hb-service
+# OU
+cd ~/.homebridge                # installation manuelle
 
-cd /var/lib/homebridge   # ou ~/.homebridge selon votre installation
+# Installer le plugin depuis le dépôt local
+npm install --save \
+  /path/to/pyHackeron/integrations/homebridge/homebridge-corelec
 
-# Créer le dossier du plugin
-mkdir -p node_modules/homebridge-corelec
-
-# Copier les deux fichiers depuis le dépôt
-cp /path/to/pyHackeron/integrations/homebridge/homebridge-corelec/index.js \
-   /path/to/pyHackeron/integrations/homebridge/homebridge-corelec/package.json \
-   node_modules/homebridge-corelec/
-
-# Aucun npm install requis — pas de dépendances npm externes
+# Redémarrer Homebridge
+sudo hb-service restart         # ou : sudo systemctl restart homebridge
 ```
 
-### Via Homebridge UI (méthode recommandée)
+### Méthode 2 — `npm link` (développement)
 
-1. Copiez le dossier `homebridge-corelec/` dans un répertoire temporaire accessible
-2. Dans Homebridge UI → **Plugins** → **Install Plugin** → fournissez le chemin local  
-   (ou publiez sur npm pour une installation standard)
+```bash
+# Dans le dossier du plugin
+cd /path/to/pyHackeron/integrations/homebridge/homebridge-corelec
+npm link
+
+# Dans le dossier Homebridge
+cd /var/lib/homebridge           # ou ~/.homebridge
+npm link homebridge-corelec
+
+sudo hb-service restart
+```
+
+### Via Homebridge UI
+
+1. Dans **Plugins** → **⋯** → **Install Plugin from local path / tarball**
+2. Saisir le chemin absolu vers `integrations/homebridge/homebridge-corelec/`
+3. Redémarrer Homebridge depuis l'UI
+
+### Vérification dans les logs
+
+Après redémarrage, chercher dans les logs Homebridge :
+
+```
+[Homebridge] Loaded plugin: homebridge-corelec
+[Corelec] Plugin initialisé — http://192.168.0.20:8080 (poll 30s)
+```
+
+Si rien n'apparaît → le plugin n'est pas chargé. Vérifier :
+```bash
+# Le package est bien dans node_modules ?
+ls /var/lib/homebridge/node_modules/homebridge-corelec/
+
+# npm le connaît ?
+cd /var/lib/homebridge && npm list homebridge-corelec
+```
 
 ### Configuration (`~/.homebridge/config.json`)
 
