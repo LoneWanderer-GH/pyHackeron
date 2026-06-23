@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-DynamicUser=yes
+User=corelec-web
 EnvironmentFile=/etc/corelec/web.env
 ExecStart=/volume1/corelec/venv/bin/python /volume1/corelec/web_server.py
 Restart=on-failure
