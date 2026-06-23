@@ -115,7 +115,7 @@ class PolarityWidget(QWidget):
             self._bar.setStyleSheet(self._BAR_BASE.format(fg="white", chunk=chunk))
             self._bar.setFormat(
                 f"Phase {'A' if phase_a else 'B'}"
-                f" \u2014 {timer_min} / {period_min} min ({pct} %%)"
+                f" \u2014 {timer_min} / {period_min} min ({pct} %)"
             )
         else:
             self._bar.setValue(0)
@@ -164,7 +164,9 @@ class BoostWidget(QProgressBar):
             self.setValue(0)
             self.setFormat("—")
             self.setStyleSheet(self._BAR_INACTIVE)
+            self.setVisible(False)
         else:
+            self.setVisible(True)
             if total_min > 0:
                 pct = max(1, min(100, int(remaining_min * 100 / total_min)))
             else:
