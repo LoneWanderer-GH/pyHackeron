@@ -270,7 +270,7 @@ class Dashboard(QWidget):
         pw.scene().addItem(self.ph_right_vb)
         pw.getAxis('right').linkToView(self.ph_right_vb)
         self.ph_right_vb.setXLink(pw.getViewBox())
-        self.ph_right_vb.setMouseEnabled(x=False, y=False)
+        # self.ph_right_vb.setMouseEnabled(x=False, y=False)
         self.ph_right_vb.setLimits(yMin=-0.05, yMax=2.1)
 
         def _update_ph_right_vb():
@@ -332,7 +332,7 @@ class Dashboard(QWidget):
         _cpw.scene().addItem(self.cycle_right_vb)
         _cpw.getAxis('right').linkToView(self.cycle_right_vb)
         self.cycle_right_vb.setXLink(_cpw.getViewBox())
-        self.cycle_right_vb.setMouseEnabled(x=False, y=False)
+        # self.cycle_right_vb.setMouseEnabled(x=False, y=False)
         self.cycle_right_vb.setLimits(yMin=-0.05, yMax=2.1)
 
         def _update_cycle_right_vb():
@@ -381,6 +381,10 @@ class Dashboard(QWidget):
         self._plot_series[self.boost_graph] = [
             {'x':'boost_x','y':'boost_y','color':'orange','name':'Boost restant (min)'},
         ]
+        # setup mouse zoom logic for all graphs
+        self.graphs = [self.ph_graph, self.electro_graph, self.cycle_graph, self.boost_graph]
+        for g in self.graphs:
+            g.setMouseEnabled(x=True, y=False)
 
         # setup interactive crosshairs for graphs
         # _crosshair_proxies : maintenir les références pour éviter le GC
