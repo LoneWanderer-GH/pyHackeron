@@ -127,6 +127,16 @@ class Dashboard(QWidget):
         self.electro_value = QLabel("-")
         self.boost_widget = BoostWidget()
         self._boost_initial_min: int = 0
+
+        # Cache de l'historique des courbes.
+        # Seul le premier refresh fait une lecture complète en DB.
+        # Les suivants ne chargent que les nouvelles lignes (id > dernier id vu),
+        # rendant le refresh quasi instantané une fois le cache chargé.
+        # Invalider après un resync / redecode via _invalidate_hist_cache().
+        self._hist_cache:      dict = {}   # int -> dict[str, list[tuple[str, float]]]
+        self._hist_last_id: dict[int, int] = {}
+        self._hist_last_epoch: dict[int, float] = {}
+        self._hist_dirty: bool = True   # True → reload complet au prochain refresh
         self.inversion_timer_value = QLabel("-")
         self.ph_consigne_value = QLabel("-")
         self.redox_consigne_value = QLabel("-")
@@ -569,7 +579,7 @@ class Dashboard(QWidget):
         self.setLayout(layout)
         
         self.timer = QTimer(self)
-        self.timer.setInterval(2000)
+        self.timer.setInterval(5000)
         self.timer.timeout.connect(self.refresh)
         self.timer.start()
         
@@ -700,6 +710,7 @@ class Dashboard(QWidget):
     def _on_db_sync_complete(self, table: str) -> None:
         """Appelé quand le dernier chunk DB sync est reçu → recharge graphiques et historique RE."""
         logger.debug("DB sync complet (table=%s) → refresh dashboard", table)
+        self._invalidate_hist_cache()   # forcer un reload complet des courbes
         if getattr(self, '_redecoding', False):
             self._redecoding = False
             self._redecode_button.setEnabled(True)
@@ -946,7 +957,7 @@ class Dashboard(QWidget):
     # Pas de temps d'affichage pour les graphiques.
     # Un point par fenêtre de 30 s réduit considérablement le rendu
     # tout en conservant une résolution suffisante pour le monitoring.
-    _DISPLAY_STEP_S: float = 30.0
+    _DISPLAY_STEP_S: float = 60.0 #30.0
 
     def _build_disconnect_intervals(
         self, events: list[tuple[str, str, str]]
@@ -971,16 +982,86 @@ class Dashboard(QWidget):
 
     def _decode_frames_history(self, frame_type: int, limit: int,
                                 display_step_s: float = 0.0) -> dict:
-        """Lit les valeurs décodées depuis decoded_frames (via json_extract SQL).
-        Aucun décodage ctypes côté Python — les trames sont pré-décodées à la
-        réception (store_frame) ou au premier démarrage (backfill one-shot).
+        """Lit les valeurs décodées depuis decoded_frames — avec cache incrémental.
+
+        Premier appel (ou après invalidation) : chargement complet via SQL.
+        Appels suivants : seules les nouvelles lignes (id > dernier id vu) sont
+        chargées et fusionnées dans le cache — temps de réponse < 1 ms en régime
+        permanent.
         """
         fields = self._DECODED_FIELDS.get(frame_type)
         if not fields:
             return {}
-        return self.database.load_decoded_frames_by_type(
-            frame_type, fields, limit, display_step_s=display_step_s
-        )
+
+        if self._hist_dirty or frame_type not in self._hist_cache:
+            # Chargement complet avec paliers de résolution décroissante :
+            # données récentes → haute résolution (60s), vieilles données → moyenne
+            # sur grands buckets (5 min, 30 min, 2 h).  Supprime le besoin d'un
+            # LIMIT arbitraire : chaque palier retourne au plus ~1 500 points.
+            data = self.database.load_decoded_frames_tiered(frame_type, fields)
+            self._hist_cache[frame_type] = data
+            self._hist_last_id[frame_type] = self.database.get_max_decoded_frame_id(frame_type)
+            # Epoch du dernier point retenu (pour le stride incrémental)
+            last_epoch = 0.0
+            for f in fields:
+                series = data.get(f, [])
+                if series:
+                    try:
+                        last_epoch = max(
+                            last_epoch,
+                            datetime.fromisoformat(series[-1][0]).timestamp(),
+                        )
+                    except Exception:
+                        pass
+            self._hist_last_epoch[frame_type] = last_epoch
+        else:
+            # Mise à jour incrémentale : seulement les nouvelles lignes
+            self._update_hist_cache(frame_type, fields, display_step_s)
+
+        return self._hist_cache[frame_type]
+
+    def _update_hist_cache(
+        self, frame_type: int, fields: list[str], display_step_s: float
+    ) -> None:
+        """Ajoute les nouvelles lignes DB au cache existant (requête incrémentale)."""
+        min_id = self._hist_last_id.get(frame_type, 0)
+        new_rows = self.database.load_decoded_frames_since(frame_type, fields, min_id)
+        if not new_rows:
+            return
+
+        cache = self._hist_cache[frame_type]
+        last_epoch = self._hist_last_epoch.get(frame_type, 0.0)
+        last_id = min_id
+
+        for row in new_rows:
+            row_id = row[0]
+            ts     = row[1]
+            last_id = max(last_id, row_id)
+            try:
+                epoch = datetime.fromisoformat(ts).timestamp()
+            except Exception:
+                continue
+            # Appliquer le stride : ignorer si trop proche du dernier point retenu
+            if display_step_s > 0 and last_epoch > 0 and (epoch - last_epoch) < display_step_s:
+                continue
+            last_epoch = epoch
+            for i, f in enumerate(fields):
+                v = row[i + 2]   # row = (id, ts, val_f1, val_f2, …)
+                if v is not None:
+                    cache.setdefault(f, []).append((ts, float(v)))
+
+        self._hist_last_id[frame_type]    = last_id
+        self._hist_last_epoch[frame_type] = last_epoch
+
+    def _invalidate_hist_cache(self) -> None:
+        """Invalide le cache : le prochain refresh recharge tout depuis la DB.
+
+        À appeler après un resync ou un re-décodage.
+        """
+        self._hist_dirty = True
+        self._hist_cache.clear()
+        self._hist_last_id.clear()
+        self._hist_last_epoch.clear()
 
     def _ph_color(self, s: 'RegulatorState') -> str:
         """Couleur du label pH selon l'état alarme / tolérance / consigne.
@@ -1078,19 +1159,28 @@ class Dashboard(QWidget):
         Appelé par le timer toutes les 2 s et après un DB sync.
         Ne pas connecter à state_updated (trop fréquent).
         """
+        # logger.debug("Dashboard refresh START")
+        # logger.debug("Dashboard refresh - Refreshing labels START")
         self._refresh_labels()
+        # logger.debug("Dashboard refresh - Refreshing labels END")
 
+        # logger.debug("Dashboard refresh - Decode frames history START")
         _h77 = self._decode_frames_history(77, 100_000, self._DISPLAY_STEP_S)
         _h83 = self._decode_frames_history(83, 100_000, self._DISPLAY_STEP_S)
         _h65 = self._decode_frames_history(65, 100_000, self._DISPLAY_STEP_S)
+        self._hist_dirty = False   # cache validé après chargement complet
+        # logger.debug("Dashboard refresh - Decode frames history END")
 
         # Intervalles de déconnexion pour une détection de trous plus robuste
+        # logger.debug("Dashboard refresh - Load connection events START")
         try:
-            _conn_events = self.database.load_connection_events(limit=500)
+            _conn_events = self.database.load_connection_events(limit=1_000)
         except Exception:
             _conn_events = []
         _disconnect_intervals = self._build_disconnect_intervals(_conn_events)
+        # logger.debug("Dashboard refresh - Load connection events END")
 
+        # logger.debug("Dashboard refresh - get of curve data START")
         ph = _h77.get('ph', [])
         ph_consigne = _h83.get('ph_consigne', [])
         electrolyse_consigne_courante = _h65.get('current_electrolyse_percent', [])
@@ -1099,8 +1189,12 @@ class Dashboard(QWidget):
         inversion_period = _h65.get('inversion_period_min', [])
         boost_remain = _h65.get('boost_remaining_min', [])
         polarity_phase = _h65.get('polarity_phase_a', [])
+        pump_hist = _h77.get('pompe_moins_active', [])
+        # logger.debug("Dashboard refresh - get of curve data END")
         
-        def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 120.0) -> tuple[list[float], list[float]]:
+        def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 4 * 3600.0) -> tuple[list[float], list[float]]:
+            # gap_threshold = 4h > 2× le plus grand bucket (2h pour données > 30j).
+            # Les vrais trous (déconnexion) sont détectés via _disconnect_intervals.
             xs: list[float] = []
             ys: list[float] = []
             previous_ts: float | None = None
@@ -1125,16 +1219,42 @@ class Dashboard(QWidget):
                 previous_ts = x
             return xs, ys
 
+        # logger.debug("Dashboard refresh - to_plot_points pH START")
         ph_x, ph_y = to_plot_points(ph)
+        # logger.debug("Dashboard refresh - to_plot_points pH END")
+        
+        # logger.debug("Dashboard refresh - to_plot_points pH consigne START")
         ph_cons_x, ph_cons_y = to_plot_points(ph_consigne)
-        pump_hist = _h77.get('pompe_moins_active', [])
+        # logger.debug("Dashboard refresh - to_plot_points pH consigne END")
+
+        # logger.debug("Dashboard refresh - to_plot_points pump START")
         pump_x, pump_y = to_plot_points(pump_hist)
+        # logger.debug("Dashboard refresh - to_plot_points pump END")
+
+        # logger.debug("Dashboard refresh - to_plot_points electrolyse START")
         electro_x, electro_y = to_plot_points(electrolyse_consigne_courante)
+        # logger.debug("Dashboard refresh - to_plot_points electrolyse END")
+
+        # logger.debug("Dashboard refresh - to_plot_points electrolyse consigne volet START")
         electro_cons_x, electro_cons_y = to_plot_points(electrolyse_consigne_volet_courante)
+        # logger.debug("Dashboard refresh - to_plot_points electrolyse consigne volet END")
+
+        # logger.debug("Dashboard refresh - to_plot_points inversion timer START")
         inversion_timer_x, inversion_timer_y = to_plot_points(inversion_timer)
+        # logger.debug("Dashboard refresh - to_plot_points inversion timer END")
+
+
+        # logger.debug("Dashboard refresh - to_plot_points inversion period START")
         inversion_period_x, inversion_period_y = to_plot_points(inversion_period)
+        # logger.debug("Dashboard refresh - to_plot_points inversion period END")
+
+        # logger.debug("Dashboard refresh - to_plot_points boost START")
         boost_x, boost_y = to_plot_points(boost_remain)
+        # logger.debug("Dashboard refresh - to_plot_points boost END")
+
+        # logger.debug("Dashboard refresh - to_plot_points polarity phase START")
         polarity_phase_x, polarity_phase_y = to_plot_points(polarity_phase)
+        # logger.debug("Dashboard refresh - to_plot_points polarity phase END")
 
         # expose arrays for crosshair nearest-point lookup
         self.ph_x, self.ph_y = ph_x, ph_y
@@ -1147,6 +1267,7 @@ class Dashboard(QWidget):
         self.boost_x, self.boost_y = boost_x, boost_y
         self.polarity_phase_x = polarity_phase_x
 
+        # logger.debug("Dashboard refresh - setData curves START")
         self.ph_curve.setData(ph_x, ph_y, connect='finite')
         self.ph_setpoint_curve.setData(ph_cons_x, ph_cons_y, connect='finite')
         # plot pump state on secondary right axis as binary 0/1
@@ -1174,11 +1295,13 @@ class Dashboard(QWidget):
         self.polarity_phase_curve.setData(polarity_phase_x, polarity_state_y, connect='finite')
         self.cycle_right_vb.setYRange(0, 2, padding=0)
         self.boost_curve.setData(boost_x, boost_y, connect='finite')
+        # logger.debug("Dashboard refresh - setData curves END")
 
         # Mettre à jour les courbes RE actives avec le dernier historique
         for _lbl in list(self.reverse_series_items):
             self._refresh_reverse_series(_lbl)
-    
+        # logger.debug("Dashboard refresh START")
+
     def update_reverse(self, payload: DecodedBase):
         
         t = payload.type

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import sqlite3
@@ -11,6 +11,17 @@ from corelec.BLE.frame import Frame
 from corelec.ReverseEngineering.decoder import DecodedBase
 
 logger = logging.getLogger(__name__)
+
+
+def _shift_ts(ts_iso: str, delta_s: int) -> str:
+    """Retourne ts_iso + delta_s secondes (format ISO 'YYYY-MM-DD HH:MM:SS').
+
+    ts_iso provient de SQLite datetime(...,'unixepoch') : 'YYYY-MM-DD HH:MM:SS'.
+    Utilisé par load_decoded_frames_tiered pour placer le point MAX au milieu
+    du bucket des champs en échelon.
+    """
+    dt = datetime.fromisoformat(ts_iso.replace(' ', 'T'))
+    return (dt + timedelta(seconds=delta_s)).strftime('%Y-%m-%d %H:%M:%S')
 
 
 class Database:
@@ -26,11 +37,42 @@ class Database:
     Tables :
         raw_frames      (id, ts ISO-8601, frame_type int, frame_hex str)
         decoded_frames  (id, ts ISO-8601, frame_type int, data json)
-        decoded_values  conservée pour compatibilité, n’est plus écrite
-        frame_bytes     conservée pour compatibilité, n’est plus écrite
+        decoded_values  conservée pour compatibilité, n'est plus écrite
+        frame_bytes     conservée pour compatibilité, n'est plus écrite
+
+    Agrégation tiered (load_decoded_frames_tiered) :
+        - Champs continus (pH, temp…)      → AVG() par bucket
+        - Champs d'alarme                  → MAX() par bucket
+        - Champs en échelon/compteur       → MIN()+MAX() par bucket
+          (transitions et remises à zéro préservées)
 
     Thread-safe : toutes les écritures utilisent ``self.lock``.
     """
+    _HIST_TIERS: list[tuple[float, int]] = [
+        (    24 * 3600,     60),   # < 24 h         → 1 pt / 60 s  (≈ 1 440 pts/j)
+        ( 7 * 24 * 3600,   300),   # 24 h – 7 j     → 1 pt / 5 min (≈ 2 016 pts)
+        (30 * 24 * 3600, 1_800),   # 7 j – 30 j     → 1 pt / 30 min (≈ 1 104 pts)
+        (float('inf'),   7_200),   # > 30 j          → 1 pt / 2 h
+    ]
+
+    # Champs dont le signal est continu et lentement variable :
+    # avg() par bucket conserve bien la valeur.
+    _SMOOTH_FIELDS: frozenset = frozenset({
+        'ph', 'redox', 'temp', 'sel',
+        'ph_consigne', 'err_max', 'err_min', 'redox_consigne',
+    })
+
+    # Champs d'alarme / code d'état : MAX() pour ne jamais perdre une alarme.
+    _ALARM_FIELDS: frozenset = frozenset({
+        'alarme', 'warning', 'alarm_rdx', 'elx_fault_code',
+    })
+
+    # Tous les autres champs sont traités comme des échelons / compteurs
+    # (MIN + MAX par bucket) pour préserver les transitions et remises à zéro.
+    # Ex : inversion_timer_min (dent de scie), boost_remaining_min,
+    #      current_electrolyse_percent, polarity_phase_a, etc.
+
+
 
     def __init__(self, path:str | Path="pool.db", sparse_heartbeat_s: float = 60.0):
         _path  : Path = Path(path)
@@ -231,6 +273,133 @@ class Database:
                     result[f].append((ts, float(v)))
         return result
 
+    def load_decoded_frames_tiered(
+        self,
+        frame_type: int,
+        fields: list[str],
+        tiers: list[tuple[float, int]] | None = None,
+    ) -> dict[str, list[tuple[str, float]]]:
+        """Chargement multi-paliers avec agrégation adaptée au type de champ.
+
+        Trois stratégies SQL selon la nature du champ :
+
+        · **smooth** (_SMOOTH_FIELDS)  : AVG() — signal continu, le lissage
+          est souhaitable (pH, redox, température...).
+
+        · **alarm**  (_ALARM_FIELDS)   : MAX() — on ne perd jamais un code
+          d'alarme actif.
+
+        · **step**   (tous les autres) : MIN() + MAX() par bucket.
+          Si min ≈ max (Δ < 0.5) → valeur stable, on n'émet qu'un seul point.
+          Sinon → deux points : (ts_bucket, min) et (ts_bucket + bucket//2, max).
+          Cela préserve les transitions d'échelons, les remises à zéro des
+          compteurs (dent de scie de polarité) et les activations boost.
+
+        Paramètres
+        ----------
+        tiers : [(age_max_s, bucket_s), ...].  None → _HIST_TIERS.
+        """
+        if tiers is None:
+            tiers = self._HIST_TIERS
+
+        result: dict[str, list[tuple[str, float]]] = {f: [] for f in fields}
+        now_s = _time.time()
+
+        # —— Classement des champs et construction du SELECT dynamique ———————
+        # col_info : [(field_name, 'avg' | 'single' | 'min' | 'max'), ...]
+        # Un champ STEP génère DEUX entrées consécutives ('min' puis 'max').
+        sel_parts: list[str] = []
+        col_info:  list[tuple[str, str]] = []
+        for f in fields:
+            if f in self._SMOOTH_FIELDS:
+                sel_parts.append(f"AVG(json_extract(data,'$.{f}'))")
+                col_info.append((f, 'avg'))
+            elif f in self._ALARM_FIELDS:
+                sel_parts.append(f"MAX(json_extract(data,'$.{f}'))")
+                col_info.append((f, 'single'))
+            else:  # step / counter / binary
+                sel_parts.append(f"MIN(json_extract(data,'$.{f}'))")
+                sel_parts.append(f"MAX(json_extract(data,'$.{f}'))")
+                col_info.append((f, 'min'))
+                col_info.append((f, 'max'))
+        sel = ", ".join(sel_parts)
+
+        upper_s: float | None = None
+
+        for age_max_s, bucket_s in tiers:
+            lower_s: float | None = (
+                now_s - age_max_s if age_max_s != float('inf') else None
+            )
+
+            where_parts = ["frame_type=?"]
+            params: list = [bucket_s, bucket_s, frame_type]
+            if upper_s is not None:
+                where_parts.append("ts < ?")
+                params.append(datetime.utcfromtimestamp(upper_s).isoformat())
+            if lower_s is not None:
+                where_parts.append("ts >= ?")
+                params.append(datetime.utcfromtimestamp(lower_s).isoformat())
+
+            where = " AND ".join(where_parts)
+            sql = (
+                f"SELECT datetime(CAST(strftime('%s',ts)/?  AS INTEGER)*?,'unixepoch') AS ts_b,"
+                f" {sel}"
+                f" FROM decoded_frames WHERE {where}"
+                f" GROUP BY ts_b ORDER BY ts_b"
+            )
+            cur = self.conn.cursor()
+            cur.execute(sql, params)
+
+            for row in cur.fetchall():
+                ts_b = row[0]
+                if ts_b is None:
+                    continue
+
+                # Accumule les min/max des champs STEP pour émission en fin de ligne
+                pending: dict[str, dict[str, float]] = {}  # field → {'min': v, 'max': v}
+
+                for col_i, (f, agg) in enumerate(col_info):
+                    v = row[col_i + 1]
+                    if v is None:
+                        continue
+                    v = float(v)
+                    if agg in ('avg', 'single'):
+                        result[f].append((ts_b, v))
+                    elif agg == 'min':
+                        pending.setdefault(f, {})['min'] = v
+                    elif agg == 'max':
+                        pending.setdefault(f, {})['max'] = v
+
+                # Émission des points pour les champs STEP
+                for f, mm in pending.items():
+                    mn = mm.get('min')
+                    mx = mm.get('max')
+                    if mn is None and mx is None:
+                        continue
+                    if mn is None:
+                        result[f].append((ts_b, mx))  # type: ignore[arg-type]
+                    elif mx is None:
+                        result[f].append((ts_b, mn))
+                    elif mx - mn < 0.5:
+                        # Valeur stable dans ce bucket → un seul point
+                        result[f].append((ts_b, (mn + mx) / 2.0))
+                    else:
+                        # Transition détectée : émettre min en début de bucket
+                        # et max au milieu pour préserver la plage.
+                        ts_mid = _shift_ts(ts_b, bucket_s // 2)
+                        result[f].append((ts_b,  mn))
+                        result[f].append((ts_mid, mx))
+
+            upper_s = lower_s
+            if lower_s is None:
+                break
+
+        # Re-tri ASC (paliers parcourus récent → ancien → points mélangés)
+        for f in fields:
+            result[f].sort(key=lambda t: t[0])
+
+        return result
+
     def log_connection_event(self, event: str, message: str = '') -> None:
         """Enregistre un événement de connexion/déconnexion BLE."""
         ts = datetime.now().isoformat()
@@ -254,6 +423,33 @@ class Database:
             (limit,),
         )
         return list(reversed(cur.fetchall()))
+
+    def load_decoded_frames_since(
+        self, frame_type: int, fields: list[str], min_id: int
+    ) -> list:   # list[tuple[int, str, ...]]
+        """Requête incrémentale : lignes de decoded_frames avec id > min_id.
+
+        Retourne des tuples ``(id, ts, val_f1, val_f2, …)`` en ordre ASC.
+        Utilisé par le cache de l'historique du dashboard pour n'interroger
+        que les nouvelles lignes entre deux rafraîchissements.
+        """
+        sel = ", ".join(f"json_extract(data,'$.{f}')" for f in fields)
+        cur = self.conn.cursor()
+        cur.execute(
+            f"SELECT id, ts, {sel} FROM decoded_frames "
+            "WHERE frame_type=? AND id > ? ORDER BY id ASC",
+            (frame_type, min_id),
+        )
+        return cur.fetchall()
+
+    def get_max_decoded_frame_id(self, frame_type: int) -> int:
+        """Retourne le plus grand id dans decoded_frames pour frame_type, ou 0."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT MAX(id) FROM decoded_frames WHERE frame_type=?", (frame_type,)
+        )
+        r = cur.fetchone()
+        return (r[0] or 0) if r else 0
 
     def _backfill_decoded_frames(self) -> None:
         """Migration one-shot : décode toutes les raw_frames existantes dans decoded_frames.
