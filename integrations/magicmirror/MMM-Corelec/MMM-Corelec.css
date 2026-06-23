@@ -1,0 +1,79 @@
+/* MMM-Corelec.css */
+
+.MMM-Corelec {
+  font-family: inherit;
+  min-width: 180px;
+}
+
+/* Status row */
+.corelec-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.corelec-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #555;
+}
+.corelec-dot--connected    { background: #22c55e; }
+.corelec-dot--connecting   { background: #f59e0b; animation: mm-pulse 1s infinite; }
+.corelec-dot--disconnected { background: #555; }
+.corelec-dot--error        { background: #ef4444; }
+
+@keyframes mm-pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+.corelec-ts { font-size: 0.65em; opacity: 0.55; }
+
+/* Alarm banner */
+.corelec-alarm {
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.75em;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 5px;
+  text-align: center;
+}
+
+/* Table */
+.corelec-table {
+  border-spacing: 0;
+  width: 100%;
+}
+.corelec-row { line-height: 1.8; }
+
+.corelec-label {
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+
+.corelec-value {
+  font-size: 1em;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Color states */
+.corelec-ok     { color: #22c55e; }
+.corelec-warn   { color: #f59e0b; }
+.corelec-danger { color: #ef4444; }
+
+/* Boost animation */
+.corelec-boost-active {
+  color: #f59e0b;
+  animation: mm-boost 2s infinite;
+}
+@keyframes mm-boost { 0%,100%{opacity:1} 50%{opacity:.45} }
+
+.corelec-loading { font-size: 0.75em; opacity: 0.5; }
