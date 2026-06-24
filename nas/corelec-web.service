@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=corelec-web
 WorkingDirectory=/volume1/corelec
 EnvironmentFile=/etc/corelec/web.env
 ExecStart=/volume1/corelec/venv/bin/python /volume1/corelec/web_server.py
