@@ -121,13 +121,23 @@ class Frame77(FrameBase):
             #   bit 6   (0x40)  : pompe_moins_active — pompe pH- en cours en mode AUTO uniquement ;
             #                     = 0 lorsque pompes_forcees=True (mode forcé bypass la régulation auto)
             ('pump_flags',    c_uint8),  # byte 12
-            # byte 13  sensor_config_flags :
-            #   bit 3 (0x08) : config_capteur_sel_actif — présent (1) quand le capteur SEL est activé,
-            #                  absent (0) quand désactivé (observé : 0x19→0x11 à la désactivation)
-            #   bit 7 (0x80) : pompes_forcees — CONFIRMÉ : 17 (0x11)→145 (0x91) lors du forçage
-            #                  manuel de la pompe pH- pendant 1 min, retour à 17 après ~1,5 min.
-            #                  Pendant ce temps : pump_flags (byte 12) = 0x03 (regulation_active=0,
-            #                  pompe_moins_active=0) — le mode forcé suspend la régulation auto.
+            # byte 12 pump_flags (source officielle akeron.js + RE) :
+            #   bit 7 (0x80) : pompe_plus_active      — relais pompe pH+ en cours
+            #   bit 6 (0x40) : pompe_moins_active     — relais pompe pH- en cours (mode AUTO)
+            #   bit 5 (0x20) : pompe_chl_elx_active   — relais chlore/électrolyseur actif
+            #                  Alias local : regulation_active (sémantique identique)
+            #                  = 0 si flux coupé ou si pompes_forcees=True
+            #   bit 4 (0x10) : relais_fil_actif        — relais fil (câble) actif
+            #   bits 0+1     : toujours 1 dans nos données (usage inconnu)
+            # byte 13  sensor_config_flags (source officielle akeron.js) :
+            #   bit 0 (0x01) : pompe_moins_presence   — pompe pH- configurée/présente
+            #   bit 1 (0x02) : pompe_plus_presence    — pompe pH+ configurée/présente
+            #   bit 2 (0x04) : capteur_temp           — capteur température présent
+            #   bit 3 (0x08) : capteur_sel            — capteur SEL présent/actif
+            #                  (observé : 0x19→0x11 à la désactivation)
+            #   bit 4 (0x10) : flow_switch_m          — pressostat (|= avec Frame65 bit2)
+            #   bit 5 (0x20) : pompe_chlore           — pompe chlore présente
+            #   bit 7 (0x80) : pompes_forcees — CONFIRMÉ : 17→145 lors du forçage manuel
             ('sensor_config_flags', c_uint8),  # byte 13
             # byte 14 : constante fixe par type de trame (jamais un CRC)
             #   vérifié sur 5000 trames : Frame77=0x82 toujours
@@ -152,20 +162,37 @@ class Frame77(FrameBase):
             'alarme':             be.alarme,
             'warning':            be.warning & 0x0F,
             'alarm_rdx':          be.warning >> 4,
+            'pompe_plus_active':  bool(be.pump_flags & (1 << 7)),
             'pompe_moins_active': bool(be.pump_flags & (1 << 6)),
-            'regulation_active':  bool(be.pump_flags & (1 << 5)),
+            # pompe_chl_elx_active = relais chlore/électrolyseur (officiel: PompeChlElxActive)
+            # Alias sémantique local conservé pour rétrocompatibilité : regulation_active
+            'pompe_chl_elx_active': bool(be.pump_flags & (1 << 5)),
+            'regulation_active':    bool(be.pump_flags & (1 << 5)),  # alias
+            'relais_fil_actif':     bool(be.pump_flags & (1 << 4)),
+            'pompe_moins_presence': bool(be.sensor_config_flags & (1 << 0)),
+            'pompe_plus_presence':  bool(be.sensor_config_flags & (1 << 1)),
+            'capteur_temp':         bool(be.sensor_config_flags & (1 << 2)),
             'config_capteur_sel_actif': bool(be.sensor_config_flags & (1 << 3)),
-            'pompes_forcees':     bool(be.sensor_config_flags & (1 << 7)),
+            'flow_switch_m':        bool(be.sensor_config_flags & (1 << 4)),
+            'pompe_chlore':         bool(be.sensor_config_flags & (1 << 5)),
+            'pompes_forcees':       bool(be.sensor_config_flags & (1 << 7)),
             # Noms des bits connus pour l'UI Reverse Engineering
             '_bit_names': {
                 12: {  # pump_flags
                     0: 'const_1_b0',
                     1: 'const_1_b1',
-                    5: 'regulation_active',
+                    4: 'relais_fil_actif',
+                    5: 'pompe_chl_elx_active',
                     6: 'pompe_moins_active',
+                    7: 'pompe_plus_active',
                 },
                 13: {  # sensor_config_flags
-                    3: 'config_sel_actif',
+                    0: 'pompe_moins_presence',
+                    1: 'pompe_plus_presence',
+                    2: 'capteur_temp',
+                    3: 'capteur_sel',
+                    4: 'flow_switch_m',
+                    5: 'pompe_chlore',
                     7: 'pompes_forcees',
                 },
             },
@@ -220,7 +247,8 @@ class Frame69(FrameBase):
             ('redox_consigne', c_uint16),  # bytes 2-3
             ('b4',  c_uint8), ('b5',  c_uint8), ('b6',  c_uint8), ('b7',  c_uint8),
             ('b8',  c_uint8), ('b9',  c_uint8), ('b10', c_uint8), ('b11', c_uint8),
-            ('b12', c_uint8), ('b13', c_uint8),
+            # bytes 12-13 : PinCodeSoft (source officielle akeron.js)
+            ('pin_code_soft', c_uint16),  # bytes 12-13
             # byte 14 : constante fixe par type de trame
             #   vérifié sur 5000 trames : Frame69=0x61 toujours
             ('frame_const', c_uint8),  # byte 14  constante=0x61 pour Frame 69
@@ -234,6 +262,7 @@ class Frame69(FrameBase):
         d.update({
             'type':           69,
             'redox_consigne': be.redox_consigne,
+            'pin_code_soft':  be.pin_code_soft,
         })
         return d
 
@@ -280,7 +309,12 @@ class Frame65(FrameBase):
             # byte 12 : code d’arrêt de l’électrolyseur lié au défaut de flux
             #   0 = normal, 7 = arrêt défaut flux, 3 = transitoire (rétablissement)
             ('elx_fault_code', c_uint8), # byte 12
-            ('b13',             c_uint8),   # byte 13 unknown
+            # byte 13 (source officielle akeron.js) :
+            #   bit 5 (0x20) : actif si Sleep OU Timer est en cours
+            #   bit 6 (0x40) : combiné avec bit5 → Sleep mode
+            #   bit 7 (0x80) : combiné avec bit5 → Timer mode
+            #   bits 0-4 (0x1F) : DureeST — durée restante Sleep ou Timer (en minutes)
+            ('b13',             c_uint8),   # byte 13 sleep/timer
             # byte 14 : CONSTANTE fixe par type de trame (jamais un CRC)
             #   vérifié sur 5000 trames : Frame65=0x49, Frame69=0x61, Frame77=0x82, Frame83=0x03
             #   Probablement un identifiant de sous-type ou version de protocole.
@@ -310,15 +344,23 @@ class Frame65(FrameBase):
             'volet_force':                     bool(be.io_flags & (1 << 3)),
             # polarity_phase_a : True = phase A de polarité (bit 5 actif).
             # Observé : io_flags=0x24 (bit5=1, phase A) → 0x04 (bit5=0, phase B) lors du reset.
-            # NB : bits 0+1 sont toujours à 0 dans toutes les trames observées (>31 000).
             'polarity_phase_a':                bool(be.io_flags & 0x20),
+            # salinite (source officielle akeron.js) : bits 0+1 de io_flags.
+            # 0=faible, 1=moyen, 2=élevé. Toujours 0 sur notre installation (pas de salinomètre).
+            'salinite':                        be.io_flags & 0x03,
             'inversion_timer_min':             be.inversion_timer,
             # elx_fault_code : nibble bas de l'octet 12 (0x0F masqué).
             # 0=normal, 7=arrêt défaut flux (E.07), 3=transitoire
             'elx_fault_code':                  be.elx_fault_code & 0x0F,
+            # byte 13 : Sleep / Timer (source officielle akeron.js)
+            'sleep':    bool(be.b13 & 0x20) and bool(be.b13 & 0x40),  # bit5 && bit6
+            'timer_actif': bool(be.b13 & 0x20) and bool(be.b13 & 0x80),  # bit5 && bit7
+            'duree_st': be.b13 & 0x1F,  # durée restante sleep/timer en minutes
             # Noms des bits connus de io_flags (byte 10) pour l'UI Reverse Engineering
             '_bit_names': {
                 10: {
+                    0: 'salinite_b0',
+                    1: 'salinite_b1',
                     2: 'flow_switch',
                     3: 'volet_force',
                     4: 'volet_actif',

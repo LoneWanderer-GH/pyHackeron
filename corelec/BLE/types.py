@@ -24,9 +24,6 @@ class DecodedBase:
 
 @dataclass
 class Decoded77(DecodedBase):
-    # def __post_init__(self):
-    #     self.type = 77
-    # # type:int = 77
     ph: Optional[float]
     redox: Optional[int]
     temp: Optional[float]
@@ -34,9 +31,19 @@ class Decoded77(DecodedBase):
     alarme: int
     warning: int
     alarm_rdx: int
+    # byte 12 relay/pump active states
+    pompe_plus_active: bool
     pompe_moins_active: bool
-    regulation_active: bool
+    pompe_chl_elx_active: bool   # relais chlore/électrolyseur (= PompeChlElxActive officiel)
+    regulation_active: bool      # alias de pompe_chl_elx_active, gardé pour rétrocompat
+    relais_fil_actif: bool
+    # byte 13 presence/config flags
+    pompe_plus_presence: bool
+    pompe_moins_presence: bool
+    capteur_temp: bool
     config_capteur_sel_actif: bool
+    flow_switch_m: bool
+    pompe_chlore: bool
     pompes_forcees: bool
 
 
@@ -52,10 +59,8 @@ class Decoded83(DecodedBase):
 
 @dataclass
 class Decoded69(DecodedBase):
-    # def __post_init__(self):
-    #     self.type = 69
-    # # type:int = 69
     redox_consigne: Optional[int]
+    pin_code_soft: int = 0  # PinCodeSoft (bytes 12-13, source officielle akeron.js)
 
 
 @dataclass
@@ -72,6 +77,10 @@ class Decoded65(DecodedBase):
     polarity_phase_a: bool
     inversion_timer_min: int
     elx_fault_code: int = 0   # byte 12 nibble bas : 0=OK, 7=E.07 défaut flux, 3=transitoire
+    salinite: int = 0        # bits 0+1 io_flags : 0=faible, 1=moyen, 2=élevé (source officielle)
+    sleep: bool = False      # byte13 bit6 && bit5 (source officielle akeron.js)
+    timer_actif: bool = False  # byte13 bit7 && bit5 (source officielle akeron.js)
+    duree_st: int = 0        # byte13 &0x1F : durée restante sleep/timer en minutes
 
 
 @dataclass

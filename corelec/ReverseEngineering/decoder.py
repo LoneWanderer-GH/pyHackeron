@@ -26,9 +26,17 @@ class Decoder:
             type=77, raw=f,
             ph=d['ph'], redox=d['redox'], temp=d['temp'], sel=d['sel'],
             alarme=d['alarme'], warning=d['warning'], alarm_rdx=d['alarm_rdx'],
+            pompe_plus_active=d['pompe_plus_active'],
             pompe_moins_active=d['pompe_moins_active'],
+            pompe_chl_elx_active=d['pompe_chl_elx_active'],
             regulation_active=d['regulation_active'],
+            relais_fil_actif=d['relais_fil_actif'],
+            pompe_plus_presence=d['pompe_plus_presence'],
+            pompe_moins_presence=d['pompe_moins_presence'],
+            capteur_temp=d['capteur_temp'],
             config_capteur_sel_actif=d['config_capteur_sel_actif'],
+            flow_switch_m=d['flow_switch_m'],
+            pompe_chlore=d['pompe_chlore'],
             pompes_forcees=d['pompes_forcees'],
         )
 
@@ -43,7 +51,7 @@ class Decoder:
 
     def _69(self, f: bytearray) -> Decoded69:
         d = CFrame69.from_bytes(f).as_dict()
-        return Decoded69(type=69, raw=f, redox_consigne=d['redox_consigne'])
+        return Decoded69(type=69, raw=f, redox_consigne=d['redox_consigne'], pin_code_soft=d['pin_code_soft'])
 
     def _65(self, f: bytearray) -> Decoded65:
         d = CFrame65.from_bytes(f).as_dict()
@@ -61,5 +69,9 @@ class Decoder:
             polarity_phase_a=d['polarity_phase_a'],
             inversion_timer_min=d['inversion_timer_min'],
             elx_fault_code=d.get('elx_fault_code', 0),
+            salinite=d.get('salinite', 0),
+            sleep=d.get('sleep', False),
+            timer_actif=d.get('timer_actif', False),
+            duree_st=d.get('duree_st', 0),
         )
 

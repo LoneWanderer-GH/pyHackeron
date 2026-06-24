@@ -77,10 +77,27 @@ _state: Dict[str, Any] = {
         "electrolyse_pct": 0,
         "boost_active": False,
         "boost_remaining_min": 0,
+        # Frame77 byte12 relay states
+        "pompe_plus_active": False,
         "pompe_moins_active": False,
+        "pompe_chl_elx_active": False,
         "regulation_active": False,
+        "relais_fil_actif": False,
+        # Frame77 byte13 presence/config
+        "pompe_plus_presence": False,
+        "pompe_moins_presence": False,
+        "capteur_temp": False,
+        "config_capteur_sel_actif": False,
+        "flow_switch_m": False,
+        "pompe_chlore": False,
+        "pompes_forcees": False,
+        # Frame65
         "flow_switch": False,
         "flow_alarm": False,
+        "salinite": 0,
+        "sleep": False,
+        "timer_actif": False,
+        "duree_st": 0,
         "alarme": 0,
         "warning": 0,
         "alarm_rdx": 0,
@@ -221,8 +238,18 @@ class ZmqListener(threading.Thread):
                 "alarme": decoded.alarme,
                 "warning": decoded.warning,
                 "alarm_rdx": decoded.alarm_rdx,
+                "pompe_plus_active": decoded.pompe_plus_active,
                 "pompe_moins_active": decoded.pompe_moins_active,
+                "pompe_chl_elx_active": decoded.pompe_chl_elx_active,
                 "regulation_active": decoded.regulation_active,
+                "relais_fil_actif": decoded.relais_fil_actif,
+                "pompe_plus_presence": decoded.pompe_plus_presence,
+                "pompe_moins_presence": decoded.pompe_moins_presence,
+                "capteur_temp": decoded.capteur_temp,
+                "config_capteur_sel_actif": decoded.config_capteur_sel_actif,
+                "flow_switch_m": decoded.flow_switch_m,
+                "pompe_chlore": decoded.pompe_chlore,
+                "pompes_forcees": decoded.pompes_forcees,
             })
 
         elif isinstance(decoded, Decoded83):
@@ -245,6 +272,10 @@ class ZmqListener(threading.Thread):
                 "flow_switch": decoded.flow_switch,
                 "flow_alarm": decoded.flow_alarm,
                 "elx_fault_code": decoded.elx_fault_code,
+                "salinite": decoded.salinite,
+                "sleep": decoded.sleep,
+                "timer_actif": decoded.timer_actif,
+                "duree_st": decoded.duree_st,
             })
 
         if updates:
