@@ -68,23 +68,24 @@ python web_server.py --daemon-host 192.168.0.16 --http-port 8080
 
 ## État du projet
 
-| Composant                        | État                  |
-|----------------------------------|-----------------------|
-| Acquisition BLE (bleak)          | ✅ Fonctionnel        |
-| Décodeur trames 77/83/65/69      | ✅ Fonctionnel        |
-| Stockage SQLite                  | ✅ Fonctionnel        |
-| Dashboard graphiques Qt          | ✅ Fonctionnel        |
-| Rétro-ingénierie UI              | ✅ Fonctionnel        |
-| Daemon headless (ble_daemon.py)  | ✅ Fonctionnel        |
-| Protocole réseau ZMQ/JSON        | ✅ Fonctionnel        |
-| Sync DB réseau                   | ✅ Fonctionnel        |
-| Dashboard web (web_server.py)    | ✅ Fonctionnel        |
-| Plugin MagicMirror²              | ✅ Fourni             |
-| Plugin Homebridge / HomeKit      | ✅ Fourni             |
-| Scripts systemd Pi3              | ✅ Fournis            |
-| Compatibilité PyQt5/Pi3 (Qt UI)  | ⚠ Via apt uniquement |
-| Bibliothèque Ada                 | 🚧 En cours (0.1-dev) |
-| Backend BLE Ada (BlueZ/BTstack)  | ⏳ Non démarré        |
+| Composant                         | État                  |
+|---------------------------------- |-----------------------|
+| Acquisition BLE (bleak)           | ✅ Fonctionnel        |
+| Décodeur trames 77/83/65/69       | ✅ Fonctionnel        |
+| Stockage SQLite                   | ✅ Fonctionnel        |
+| Dashboard graphiques Qt           | ✅ Fonctionnel        |
+| Rétro-ingénierie UI               | ✅ Fonctionnel        |
+| Daemon headless (ble_daemon.py)   | ✅ Fonctionnel        |
+| Protocole réseau ZMQ/JSON         | ✅ Fonctionnel        |
+| Sync DB réseau                    | ✅ Fonctionnel        |
+| Dashboard web (web_server.py)     | ✅ Fonctionnel        |
+| Plugin MagicMirror²               | ✅ Fourni             |
+| Plugin Homebridge / HomeKit       | ✅ Fonctionnel        |
+| Scripts systemd Pi3               | ✅ Fonctionnel        |
+| Scripts systemd NAS Synology      | ✅ Fonctionnel        |
+| Compatibilité PyQt5 & Pi3 (Qt UI) | ⚠ Via apt uniquement  |
+| Bibliothèque Ada                  | 🚧 En cours (0.1-dev) |
+| Backend BLE Ada (BlueZ/BTstack)   | ⏳ Non démarré        |
 
 ---
 
