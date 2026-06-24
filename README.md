@@ -3,15 +3,25 @@
 Supervision et rétro-ingénierie d'un régulateur de piscine **Corelec / Akeron** via BLE.  
 Intercepte, décode et affiche les trames en temps réel. Architecture daemon headless (Pi3) + UI Qt + serveur web + intégrations HomeKit / MagicMirror.
 
+Desktop UI:
+
+<img src="docs/img/main_panel.png" alt="drawing" style="width:350px;"/>
+<img src="docs/img/graphics_panel.png" alt="drawing" style="width:350px;"/>
+
+Web UI:
+
+<img src="docs/img/web_ui.png" alt="drawing" style="width:350px;"/>
+
+
 ## Architecture
 
 ```
-+------------------------------------------+   ZMQ PUB/PULL   +------------------------------------------+
-|  Raspberry Pi 3                          | <--------------> |  PC / Mac                                |
-|  ble_daemon.py                           |                  |  monitor.py --network IP                 |
-|  BLE . Decoder . SQLite                  |                  |  Dashboard Qt                            |
-|  :5555 PUB  :5556 PULL                   |                  +------------------------------------------+
-+---------------------+--------------------+
++--------------------------+   ZMQ PUB/PULL   +---------------------------+
+|  Raspberry Pi 3          | <--------------> |  PC / Mac                 |
+|  ble_daemon.py           |                  |  monitor.py --network IP  |
+|  BLE . Decoder . SQLite  |                  |  Dashboard Qt             |
+|  :5555 PUB  :5556 PULL   |                  +---------------------------+
++---------------------+----+
                       | ZMQ SUB
                       v
              web_server.py  ->  http://nas:8080
