@@ -130,18 +130,18 @@ chmod 600 "$CONFIG_DIR/web.env"
 if ! id -u "$SERVICE_USER" &>/dev/null; then
     info "Création de l'utilisateur système $SERVICE_USER…"
     useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER" \
-        || error "Impossible de créer l'utilisateur $SERVICE_USER."
+        || error "Impossible de créer l'utilisateur $SERVICE_USER. Sur Synology, le créer manuellement via Panneau de config → Utilisateur → Créer un utilisateur système. Assigner au groupe http."
 fi
 
 info "Attribution des permissions à $SERVICE_USER…"
 # Conserver root comme propriétaire ; donner au groupe $SERVICE_USER le droit
 # de lecture/traversal (sécurité : le service ne peut pas modifier ses propres
 # binaires ou bibliothèques en cas de compromission).
-chown -R root:"$SERVICE_USER" "$INSTALL_DIR"
+chown -R "$SERVICE_USER":http "$INSTALL_DIR"
 chmod -R g+rX "$INSTALL_DIR"
 # Le fichier de configuration contient des valeurs potentiellement sensibles :
 # accès réservé à root et au groupe $SERVICE_USER (pas de lecture publique).
-chown root:"$SERVICE_USER" "$CONFIG_DIR/web.env"
+chown "$SERVICE_USER":http "$CONFIG_DIR/web.env"
 chmod 640 "$CONFIG_DIR/web.env"
 
 # ---------------------------------------------------------------------------
