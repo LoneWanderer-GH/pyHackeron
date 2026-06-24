@@ -37,6 +37,17 @@ sudo nano /etc/corelec/config.env              # modifier adresse BLE, ports…
 sudo systemctl restart corelec-daemon
 ```
 
+Variables disponibles dans `/etc/corelec/config.env` :
+
+| Variable                | Défaut           | Description                          |
+|-------------------------|------------------|--------------------------------------|
+| `CORELEC_ADDRESS`       | _(obligatoire)_  | Adresse MAC BLE du régulateur        |
+| `CORELEC_PUB_PORT`      | `5555`           | Port ZMQ PUB (publication données)   |
+| `CORELEC_CMD_PORT`      | `5556`           | Port ZMQ PULL (réception commandes)  |
+| `CORELEC_DB_PATH`       | `pool.db`        | Chemin de la base SQLite             |
+| `CORELEC_POLL_INTERVAL` | `5.0`            | Intervalle de polling BLE (secondes) |
+| `CORELEC_LOG_LEVEL`     | `INFO`           | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` |
+
 ---
 
 ## Windows / macOS / Linux — interface graphique Qt
@@ -56,6 +67,18 @@ python monitor.py --address B4:E3:F9:5A:0A:13
 # Avec synchronisation de la base de données
 python monitor.py --network 192.168.1.42 --sync-db --redecode
 ```
+
+Toutes les options CLI sont aussi disponibles via variables d'environnement :
+
+| Variable              | Équivalent CLI      | Défaut    |
+|-----------------------|---------------------|-----------|
+| `CORELEC_NETWORK`     | `--network`         | _(vide)_  |
+| `CORELEC_ADDRESS`     | `--address`         | _(vide)_  |
+| `CORELEC_PUB_PORT`    | `--pub-port`        | `5555`    |
+| `CORELEC_CMD_PORT`    | `--cmd-port`        | `5556`    |
+| `CORELEC_DB_PATH`     | `--db-path`         | `pool.db` |
+| `CORELEC_POLL_INTERVAL` | `--poll-interval` | `5.0`     |
+| `CORELEC_LOG_LEVEL`   | `--log-level`       | `INFO`    |
 
 ---
 
@@ -117,6 +140,16 @@ sudo journalctl -fu    corelec-web       # logs en temps réel
 sudo nano /etc/corelec/web.env           # modifier IP daemon, port…
 sudo systemctl restart corelec-web
 ```
+
+Variables disponibles dans `/etc/corelec/web.env` :
+
+| Variable            | Défaut       | Description                              |
+|---------------------|--------------|------------------------------------------|
+| `CORELEC_HOST`      | _(obligatoire)_ | IP du Raspberry Pi (daemon BLE)       |
+| `CORELEC_PUB_PORT`  | `5555`       | Port ZMQ PUB du daemon                   |
+| `CORELEC_CMD_PORT`  | `5556`       | Port ZMQ PULL du daemon                  |
+| `CORELEC_WEB_PORT`  | `8080`       | Port HTTP du serveur web Corelec         |
+| `CORELEC_LOG_LEVEL` | `INFO`       | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` |
 
 ### Alternative sans SSH — Planificateur de tâches DSM
 

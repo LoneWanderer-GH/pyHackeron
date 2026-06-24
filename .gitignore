@@ -7,3 +7,7 @@ ada/backends/vendor/*
 typings/
 
 .idea/
+
+/corelec/pool.db
+/corelec/pool.db-shm
+/corelec/pool.db-wal
