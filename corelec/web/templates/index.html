@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Corelec Pool Monitor</title>
+  <style>
+    /* ── Variables ────────────────────────────────────────────── */
+    :root {
+      --bg:        #0f172a;
+      --surface:   #1e293b;
+      --border:    #334155;
+      --text:      #f1f5f9;
+      --muted:     #94a3b8;
+      --ok:        #22c55e;
+      --warn:      #f59e0b;
+      --danger:    #ef4444;
+      --blue:      #3b82f6;
+      --radius:    12px;
+      --shadow:    0 2px 12px rgba(0,0,0,.4);
+    }
+
+    /* ── Reset ────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      padding-bottom: 2rem;
+    }
+
+    /* ── Header ──────────────────────────────────────────────── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: .75rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; flex: 1; }
+    #conn-badge {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .8rem; color: var(--muted);
+    }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--muted);
+      transition: background .4s;
+    }
+    .dot.connected    { background: var(--ok); }
+    .dot.connecting   { background: var(--warn); animation: pulse 1s infinite; }
+    .dot.disconnected { background: var(--muted); }
+    .dot.error        { background: var(--danger); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    #last-ts { font-size: .7rem; color: var(--muted); white-space: nowrap; }
+
+    /* ── Alerte banner ───────────────────────────────────────── */
+    #alarm-bar {
+      background: var(--danger);
+      color: #fff;
+      text-align: center;
+      padding: .4rem 1rem;
+      font-weight: 600;
+      font-size: .85rem;
+      display: none;
+    }
+
+    /* ── Main grid ───────────────────────────────────────────── */
+    main { max-width: 960px; margin: 0 auto; padding: 1.25rem; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    /* ── Card ────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.1rem;
+      box-shadow: var(--shadow);
+      transition: border-color .3s;
+    }
+    .card.ok     { border-color: var(--ok); }
+    .card.warn   { border-color: var(--warn); }
+    .card.danger { border-color: var(--danger); }
+    .card.boost-active { animation: boost-glow 2s infinite; }
+    @keyframes boost-glow {
+      0%,100%{ border-color: var(--warn); box-shadow: var(--shadow); }
+      50%     { border-color: #fbbf24; box-shadow: 0 0 18px rgba(245,158,11,.4); }
+    }
+
+    .card-label {
+      font-size: .7rem; text-transform: uppercase; letter-spacing: .08em;
+      color: var(--muted); margin-bottom: .3rem;
+    }
+    .card-value {
+      font-size: 2rem; font-weight: 700; line-height: 1.1;
+      color: var(--text);
+    }
+    .card-unit  { font-size: .8rem; color: var(--muted); margin-top: .1rem; }
+    .card-sub   { font-size: .75rem; color: var(--muted); margin-top: .4rem; }
+    .card-sub span { color: var(--text); }
+
+    /* ── Progress bar (électrolyse) ──────────────────────────── */
+    .bar-track {
+      height: 6px; border-radius: 3px; background: var(--border);
+      margin-top: .6rem; overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 3px;
+      background: linear-gradient(90deg, var(--blue), #60a5fa);
+      transition: width .5s;
+    }
+
+    /* ── pH status ───────────────────────────────────────────── */
+    .ph-ok   { color: var(--ok); }
+    .ph-warn { color: var(--warn); }
+    .ph-bad  { color: var(--danger); }
+
+    /* ── Boost remaining ─────────────────────────────────────── */
+    .boost-on  { color: var(--warn); font-weight: 600; }
+    .boost-off { color: var(--muted); }
+
+    /* ── Alarms list ─────────────────────────────────────────── */
+    .alarm-item {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .78rem; margin-top: .3rem;
+    }
+    .alarm-item .dot { width: 7px; height: 7px; flex-shrink: 0; }
+
+    /* ── Controls section ────────────────────────────────────── */
+    .controls {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+    .controls h2 { font-size: .9rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 1rem; }
+
+    .ctrl-row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
+      margin-bottom: .75rem;
+    }
+    .ctrl-row label { font-size: .85rem; color: var(--muted); min-width: 90px; }
+
+    select, input[type=number] {
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: .4rem .6rem;
+      font-size: .85rem;
+    }
+    select:focus, input[type=number]:focus { outline: 2px solid var(--blue); border-color: transparent; }
+
+    button {
+      border: none; border-radius: 6px; padding: .45rem .9rem;
+      font-size: .85rem; font-weight: 600; cursor: pointer;
+      transition: opacity .2s, transform .1s;
+    }
+    button:active { transform: scale(.97); }
+    button:hover  { opacity: .85; }
+    button.primary  { background: var(--blue);   color: #fff; }
+    button.danger   { background: var(--danger);  color: #fff; }
+    button.neutral  { background: var(--border);  color: var(--text); }
+    button.warning  { background: var(--warn);    color: #000; }
+
+    /* ── Responsive tweaks ───────────────────────────────────── */
+    @media (max-width: 480px) {
+      .card-value { font-size: 1.6rem; }
+      .ctrl-row label { min-width: unset; width: 100%; }
+    }
+
+    /* ── Offline overlay ─────────────────────────────────────── */
+    #offline-msg {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.7);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; font-weight: 600; color: var(--warn);
+      display: none;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+
+<div id="alarm-bar">⚠ Alarme active — vérifiez le régulateur</div>
+
+<header>
+  <h1>🏊 Piscine</h1>
+  <div id="conn-badge">
+    <span class="dot disconnected" id="conn-dot"></span>
+    <span id="conn-text">Déconnecté</span>
+  </div>
+  <span id="last-ts"></span>
+</header>
+
+<main>
+  <div class="cards">
+
+    <!-- pH ─────────────────────────────── -->
+    <div class="card" id="card-ph">
+      <div class="card-label">pH</div>
+      <div class="card-value" id="val-ph">—</div>
+      <div class="card-sub">Consigne : <span id="val-ph-consigne">—</span></div>
+      <div class="card-sub">Pompe pH− : <span id="val-pompe">—</span></div>
+    </div>
+
+    <!-- Température ───────────────────── -->
+    <div class="card" id="card-temp">
+      <div class="card-label">Température</div>
+      <div class="card-value" id="val-temp">—</div>
+      <div class="card-unit">°C</div>
+    </div>
+
+    <!-- Redox ─────────────────────────── -->
+    <div class="card" id="card-redox">
+      <div class="card-label">Redox</div>
+      <div class="card-value" id="val-redox">—</div>
+      <div class="card-unit">mV</div>
+      <div class="card-sub">Consigne : <span id="val-redox-consigne">—</span> mV</div>
+    </div>
+
+    <!-- Électrolyse ───────────────────── -->
+    <div class="card" id="card-elx">
+      <div class="card-label">Électrolyse</div>
+      <div class="card-value" id="val-elx">—</div>
+      <div class="card-unit">%</div>
+      <div class="bar-track"><div class="bar-fill" id="elx-bar" style="width:0%"></div></div>
+    </div>
+
+    <!-- Boost ─────────────────────────── -->
+    <div class="card" id="card-boost">
+      <div class="card-label">Boost</div>
+      <div class="card-value boost-off" id="val-boost">—</div>
+      <div class="card-sub">Restant : <span id="val-boost-rem">—</span> min</div>
+    </div>
+
+    <!-- Système / alertes ─────────────── -->
+    <div class="card" id="card-sys">
+      <div class="card-label">Système</div>
+      <div id="sys-items">
+        <div class="card-sub" style="color:var(--muted)">En attente…</div>
+      </div>
+    </div>
+
+  </div><!-- /.cards -->
+
+  <!-- Contrôles ──────────────────────── -->
+  <div class="controls">
+    <h2>Contrôles</h2>
+
+    <div class="ctrl-row">
+      <label>Boost</label>
+      <select id="boost-dur">
+        <option value="60">60 min</option>
+        <option value="120" selected>120 min</option>
+        <option value="180">180 min</option>
+        <option value="240">240 min</option>
+        <option value="480">480 min (max)</option>
+      </select>
+      <button class="warning" onclick="cmdBoostStart()">▶ Démarrer boost</button>
+      <button class="danger"  onclick="cmdBoostStop()">⏹ Arrêter boost</button>
+    </div>
+
+    <div class="ctrl-row">
+      <label>Connexion BLE</label>
+      <button class="neutral" onclick="cmdRetry()">↺ Reconnecter</button>
+    </div>
+
+    <div id="cmd-feedback" style="font-size:.78rem;color:var(--muted);margin-top:.4rem;min-height:1.2em"></div>
+  </div>
+</main>
+
+<div id="offline-msg">⚡ Flux SSE interrompu — reconnexion…</div>
+
+<script>
+/* ── Helpers ──────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const fmt = (v, d=2) => v == null ? '—' : Number(v).toFixed(d);
+
+function phClass(ph, consigne) {
+  if (ph == null) return '';
+  const hi = consigne != null ? consigne + 0.3 : 7.6;
+  const lo = consigne != null ? consigne - 0.4 : 6.8;
+  if (ph < lo - 0.2 || ph > hi + 0.2) return 'ph-bad';
+  if (ph < lo || ph > hi) return 'ph-warn';
+  return 'ph-ok';
+}
+
+/* ── State → DOM ──────────────────────────────────────────────── */
+function applyState(s) {
+  const conn = s.connection || {};
+  const pool = s.pool || {};
+
+  // Header
+  const dot = $('conn-dot');
+  const sn = conn.status_name || 'disconnected';
+  dot.className = 'dot ' + sn;
+  $('conn-text').textContent = conn.message || sn;
+  $('last-ts').textContent = s.ts ? 'Mis à jour ' + s.ts.slice(11,19) : '';
+
+  // pH
+  const ph = pool.ph;
+  const pc = pool.ph_consigne;
+  $('val-ph').textContent = fmt(ph);
+  $('val-ph').className   = 'card-value ' + phClass(ph, pc);
+  $('val-ph-consigne').textContent = fmt(pc);
+  $('val-pompe').textContent = pool.pompe_moins_active ? '🔵 ACTIVE' : 'OFF';
+  const cardPh = $('card-ph');
+  const cls = phClass(ph, pc);
+  cardPh.className = 'card' + (cls === 'ph-bad' ? ' danger' : cls === 'ph-warn' ? ' warn' : ph != null ? ' ok' : '');
+
+  // Température
+  $('val-temp').textContent = fmt(pool.temp, 1);
+
+  // Redox
+  $('val-redox').textContent = fmt(pool.redox, 0);
+  $('val-redox-consigne').textContent = fmt(pool.redox_consigne, 0);
+
+  // Électrolyse
+  const elx = pool.electrolyse_pct ?? 0;
+  $('val-elx').textContent = Math.round(elx);
+  $('elx-bar').style.width = Math.min(100, elx) + '%';
+
+  // Boost
+  const boostActive = !!pool.boost_active;
+  const boostRem    = pool.boost_remaining_min ?? 0;
+  $('val-boost').textContent = boostActive ? 'ACTIF' : 'OFF';
+  $('val-boost').className   = 'card-value ' + (boostActive ? 'boost-on' : 'boost-off');
+  $('val-boost-rem').textContent = boostActive ? boostRem : '—';
+  $('card-boost').className  = 'card' + (boostActive ? ' boost-active' : '');
+
+  // Système / alertes
+  const items = [];
+  if (pool.flow_alarm)          items.push(['danger',  'Alarme débit']);
+  if (pool.flow_switch === false && conn.status_name === 'connected')
+                                items.push(['warn',    'Pressostat ouvert']);
+  if (pool.alarme)              items.push(['danger',  `Alarme ${pool.alarme}`]);
+  if (pool.warning)             items.push(['warn',    `Warning ${pool.warning}`]);
+  if (pool.elx_fault_code)      items.push(['warn',    `Err élec. ${pool.elx_fault_code}`]);
+  if (pool.regulation_active)   items.push(['ok',      'Régulation active']);
+  if (items.length === 0)       items.push(['ok',      'RAS']);
+
+  $('sys-items').innerHTML = items.map(([c, t]) =>
+    `<div class="alarm-item"><span class="dot ${c}"></span>${t}</div>`
+  ).join('');
+
+  // Alarme banner global
+  const hasAlarm = pool.alarme || pool.flow_alarm;
+  $('alarm-bar').style.display = hasAlarm ? 'block' : 'none';
+}
+
+/* ── SSE ──────────────────────────────────────────────────────── */
+let _evtSrc = null;
+
+function connectSSE() {
+  if (_evtSrc) _evtSrc.close();
+  _evtSrc = new EventSource('/api/stream');
+
+  _evtSrc.addEventListener('state', e => {
+    $('offline-msg').style.display = 'none';
+    try { applyState(JSON.parse(e.data)); } catch(err) { console.error(err); }
+  });
+
+  _evtSrc.onerror = () => {
+    $('offline-msg').style.display = 'flex';
+    // EventSource reconnecte automatiquement, on laisse faire
+  };
+}
+
+/* ── Commandes ────────────────────────────────────────────────── */
+async function sendCmd(payload) {
+  const fb = $('cmd-feedback');
+  try {
+    const r = await fetch('/api/cmd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await r.json();
+    fb.textContent = data.ok ? `✓ Commande envoyée (${payload.type})` : `✗ ${data.error}`;
+    fb.style.color = data.ok ? 'var(--ok)' : 'var(--danger)';
+  } catch (err) {
+    fb.textContent = `✗ ${err.message}`;
+    fb.style.color = 'var(--danger)';
+  }
+  setTimeout(() => { fb.textContent = ''; }, 4000);
+}
+
+function cmdBoostStart() {
+  const min = parseInt($('boost-dur').value, 10);
+  sendCmd({ type: 'boost_start', minutes: min });
+}
+function cmdBoostStop()  { sendCmd({ type: 'boost_stop' }); }
+
+async function cmdRetry() {
+  const fb = $('cmd-feedback');
+  try {
+    const r = await fetch('/api/retry', { method: 'POST' });
+    const data = await r.json();
+    fb.textContent = data.ok ? '✓ Reconnexion demandée' : `✗ ${data.error}`;
+    fb.style.color = data.ok ? 'var(--ok)' : 'var(--danger)';
+  } catch(err) {
+    fb.textContent = `✗ ${err.message}`;
+    fb.style.color = 'var(--danger)';
+  }
+  setTimeout(() => { fb.textContent = ''; }, 4000);
+}
+
+/* ── Init ─────────────────────────────────────────────────────── */
+connectSSE();
+</script>
+</body>
+</html>

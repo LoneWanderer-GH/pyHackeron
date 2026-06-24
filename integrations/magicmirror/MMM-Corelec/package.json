@@ -1,0 +1,8 @@
+{
+  "name": "MMM-Corelec",
+  "version": "1.0.0",
+  "description": "MagicMirror² module for Corelec Pool Monitor",
+  "main": "MMM-Corelec.js",
+  "scripts": {},
+  "dependencies": {}
+}
