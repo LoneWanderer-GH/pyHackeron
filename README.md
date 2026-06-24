@@ -16,17 +16,18 @@ Web UI:
 ## Architecture
 
 ```
-+--------------------------+   ZMQ PUB/PULL   +---------------------------+
-|  Raspberry Pi 3          | <--------------> |  PC / Mac                 |
-|  ble_daemon.py           |                  |  monitor.py --network IP  |
-|  BLE . Decoder . SQLite  |                  |  Dashboard Qt             |
-|  :5555 PUB  :5556 PULL   |                  +---------------------------+
-+---------------------+----+
-                      | ZMQ SUB
-                      v
-             web_server.py  ->  http://nas:8080
-             Dashboard HTML . /api/state . /api/stream (SSE)
-             -> MagicMirror2 . Homebridge / HomeKit
++--------------------------+                +--------------------------+   ZMQ PUB/PULL   +---------------------------+
+|  Pool Regulator          |    Bluetooth   |  Raspberry Pi 3          | <--------------> |  PC / Mac                 |
+|  Akeron / Corelec        |<-------------->|  ble_daemon.py           |                  |  monitor.py --network IP  |
+|  Bluetooth               |   Low Energy   |  BLE . Decoder . SQLite  |                  |  Dashboard Qt             |
+| ecltrolyse, pH, salt, ...|      (BLE)     |  :5555 PUB  :5556 PULL   |                  +---------------------------+
++--------------------------+                +------------+-------------+
+  mac address to find via                                | ZMQ SUBSCRIBE
+  bluetooth device explorer                              v
+  app (PC or phone)                           -> web_server.py  ->  http://nas:8080
+  ex: "nRF Connect"                              Dashboard HTML  . /api/state . /api/stream (SSE)
+                                              -> MagicMirror2
+                                              -> Homebridge / HomeKit -> iPhone HomeKit
 ```
 
 Mode direct sans Pi :  `python monitor.py --address B4:E3:F9:5A:0A:13`
