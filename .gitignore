@@ -11,3 +11,10 @@ typings/
 /corelec/pool.db
 /corelec/pool.db-shm
 /corelec/pool.db-wal
+
+one/MEMO_dontpush.md
+one/**/*.js
+one/**/*.js.zip
+one/decompiled_js/
+one/split.py
+one/OneClient.py

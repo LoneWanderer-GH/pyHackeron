@@ -279,30 +279,21 @@ class OneBLEClient:
     async def connect_and_auth(self) -> None:
         """Connexion + authentification + sync RTC (module déjà appairé).
 
-        Séquence critique (calquée sur le comportement de l'app mobile) :
-          1. Connexion physique BLE
-          2. Auth applicative AES (FBDE0001 → FBDE0003) — ne requiert PAS de chiffrement BLE
-          3. BLE pair/bond  — le mobile OS le déclenche automatiquement après l'auth ;
-                             on doit l'appeler explicitement sous BlueZ
-          4. Sync RTC       — requiert le chiffrement BLE (d'où l'ordre après pair)
+        Séquence :
+          1. Connexion physique — BlueZ réutilise le bond stocké (créé lors du
+             premier --pair) et établit automatiquement le lien chiffré.
+          2. Auth AES applicative (FBDE0001 → FBDE0003).
+          3. Sync RTC (optionnelle, requiert lien chiffré).
+
+        Ne pas rappeler pair() ici : cela provoque un re-connect BlueZ qui
+        efface le cache service-discovery de bleak, causant
+        "Service Discovery has not been performed yet".
         """
         logger.info("Connexion à %s", self.address)
         self._client = BleakClient(self.address)
         await self._client.connect()
         logger.info("Connecté")
-
-        # Étape 2 : auth applicative AES (ne nécessite pas de lien chiffré)
         await self._authenticate()
-
-        # Étape 3 : chiffrement BLE — le device envoie un Security Request après l'auth ;
-        # sur mobile l'OS le gère automatiquement, ici on l'appelle explicitement.
-        try:
-            await self._client.pair()
-            logger.debug("BLE bonding OK")
-        except Exception as e:
-            logger.debug("BLE pair() ignoré: %s", e)
-
-        # Étape 4 : sync RTC (requiert le lien chiffré)
         await self._sync_rtc()
         logger.info("Auth + RTC OK")
 
