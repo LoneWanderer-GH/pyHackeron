@@ -367,6 +367,9 @@ class Dashboard(QWidget):
         graphs_layout.addWidget(self.cycle_graph)
         graphs_layout.addWidget(self.boost_graph)
 
+        # for setup mouse zoom logic for all graphs and other functions
+        self.graphs = [self.ph_graph, self.electro_graph, self.cycle_graph, self.boost_graph]
+
         # ── Alignement des axes : largeurs gauche/droite identiques sur tous les graphes ──
         # ph_graph et cycle_graph ont un axe droit avec label+ticks ; electro_graph et
         # boost_graph n'ont pas d'axe droit. On force une largeur fixe identique sur tous
@@ -400,8 +403,7 @@ class Dashboard(QWidget):
         self._plot_series[self.boost_graph] = [
             {'x':'boost_x','y':'boost_y','color':'orange','name':'Boost restant (min)'},
         ]
-        # setup mouse zoom logic for all graphs
-        self.graphs = [self.ph_graph, self.electro_graph, self.cycle_graph, self.boost_graph]
+        
         for g in self.graphs:
             g.setMouseEnabled(x=True, y=False)
 
@@ -423,8 +425,11 @@ class Dashboard(QWidget):
         self.log_view.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.log_view.setStyleSheet("QTextEdit { background: #101316; color: #d7e3f4; }")
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(2000)  # limite automatique : jamais plus de 2000 lignes
-
+        if hasattr(self.log_view, 'setMaximumBlockCount'):
+            self.log_view.setMaximumBlockCount(2000)  # limite automatique : jamais plus de 2000 lignes
+        elif hasattr(self.log_view.document(), 'setMaximumBlockCount'):
+            self.log_view.document().setMaximumBlockCount(2000) # limite automatique : jamais plus de 2000 lignes
+        
         _log_clear_btn = QPushButton("⎚ Vider les logs")
         _log_clear_btn.setFixedWidth(140)
         _log_clear_btn.clicked.connect(self.log_view.clear)
