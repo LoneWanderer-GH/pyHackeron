@@ -26,6 +26,7 @@ Module.register("MMM-Corelec", {
     fields: ["ph", "temp", "electrolyse_pct", "boost"],
     showAlarms: true,
     animateBoost: true,
+    pinCode: "",                // PIN code requis par le serveur (si --pin-code configuré)
   },
 
   // ── Field definitions ──────────────────────────────────────────────────

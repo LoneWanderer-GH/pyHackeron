@@ -53,6 +53,12 @@
         "type": "boolean",
         "default": false,
         "description": "Set to true only if your controller has a Redox/ORP electrode."
+      },
+      "pinCode": {
+        "title": "PIN Code",
+        "type": "string",
+        "default": "",
+        "description": "Optional PIN code required by the web server to accept commands. Leave empty if --pin-code is not configured on the server."
       }
     }
   },
@@ -70,6 +76,12 @@
       "title": "Sensors & Accessories",
       "expandable": true,
       "items": ["boostMinutes", "exposeTemp", "exposeRedox"]
+    },
+    {
+      "type": "fieldset",
+      "title": "Security",
+      "expandable": true,
+      "items": ["pinCode"]
     }
   ]
 }

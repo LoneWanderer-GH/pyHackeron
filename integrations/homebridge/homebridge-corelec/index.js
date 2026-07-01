@@ -110,6 +110,7 @@ class CoreLecPoolAccessory {
     this.clearOnDisconnect = config.clearOnDisconnect ?? true;
     this.exposeTemp        = config.exposeTemp  ?? true;
     this.exposeRedox       = config.exposeRedox ?? false;
+    this.pinCode           = config.pinCode    ?? '';
 
     const { Service, Characteristic, HAPStatus } = api.hap;
     this.Service        = Service;
@@ -569,7 +570,8 @@ class CoreLecPoolAccessory {
 
   async _sendCmd(payload) {
     try {
-      const resp = await postJson(this.baseUrl + "/api/cmd", payload);
+      const body = this.pinCode ? { ...payload, pin: this.pinCode } : payload;
+      const resp = await postJson(this.baseUrl + "/api/cmd", body);
       if (!resp.ok) {
         this.log.warn(`[Corelec] Commande refusée: ${JSON.stringify(resp)}`);
       }

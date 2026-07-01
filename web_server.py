@@ -51,6 +51,20 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
+# Code PIN optionnel pour protéger les endpoints d'écriture.
+# Configuré via --pin-code ou $CORELEC_PIN_CODE.
+# Chaîne vide = pas de protection.
+# ---------------------------------------------------------------------------
+_pin_code: str = ""
+
+
+def _check_pin(data: dict) -> bool:
+    """Retourne True si le PIN est correct ou si aucun PIN n'est configuré."""
+    if not _pin_code:
+        return True
+    return str(data.get("pin", "")) == _pin_code
+
+# ---------------------------------------------------------------------------
 # État partagé (mis à jour par le thread ZMQ, lu par Flask)
 # ---------------------------------------------------------------------------
 _state_lock = threading.Lock()
@@ -296,8 +310,8 @@ class ZmqListener(threading.Thread):
                 caps["has_pompe_plus"]  = decoded.pompe_plus_presence
                 caps["has_pompe_moins"] = decoded.pompe_moins_presence
                 caps["has_pompe_chlore"] = decoded.pompe_chlore
-                # Redox détecté si une consigne non-nulle a déjà été reçue
-                if _state["pool"].get("redox_consigne") is not None:
+            # Redox détecté si une consigne réaliste (> 100 mV) a déjà été reçue
+                if _state["pool"].get("redox_consigne", 0) > 100:
                     caps["has_redox"] = True
 
         elif isinstance(decoded, Decoded83):
@@ -311,9 +325,11 @@ class ZmqListener(threading.Thread):
         elif isinstance(decoded, Decoded69):
             if decoded.redox_consigne is not None:
                 updates["redox_consigne"] = decoded.redox_consigne
-                # Si une consigne Redox existe, le r\u00e9gulateur a une \u00e9lectrode Redox
-                with _state_lock:
-                    _state["capabilities"]["has_redox"] = True
+                # Redox actif seulement si la consigne est une valeur réaliste (> 100 mV).
+                # decoded.redox_consigne est un c_uint16 (jamais None) — 0 = non configuré.
+                if decoded.redox_consigne > 100:
+                    with _state_lock:
+                        _state["capabilities"]["has_redox"] = True
 
         elif isinstance(decoded, Decoded65):
             updates.update({
@@ -436,6 +452,8 @@ def api_cmd() -> Response:
     if request.method == "OPTIONS":
         return _cors_headers(Response("", 204))
     data = request.get_json(silent=True) or {}
+    if not _check_pin(data):
+        return _cors_headers(jsonify({"error": "Code PIN incorrect"})), 403
     cmd_type = data.get("type")
     if not cmd_type:
         return _cors_headers(jsonify({"error": "champ 'type' manquant"})), 400
@@ -451,6 +469,9 @@ def api_cmd() -> Response:
 def api_retry() -> Response:
     if request.method == "OPTIONS":
         return _cors_headers(Response("", 204))
+    data = request.get_json(silent=True) or {}
+    if not _check_pin(data):
+        return _cors_headers(jsonify({"error": "Code PIN incorrect"})), 403
     try:
         send_cmd(Topic.CMD_RETRY)
         return _cors_headers(jsonify({"ok": True}))
@@ -475,6 +496,8 @@ def api_compact_db() -> Response:
     if request.method == "OPTIONS":
         return _cors_headers(Response("", 204))
     data = request.get_json(silent=True) or {}
+    if not _check_pin(data):
+        return _cors_headers(jsonify({"error": "Code PIN incorrect"})), 403
     max_age_days = int(data.get("max_age_days", 30))
     if not (1 <= max_age_days <= 3650):
         return _cors_headers(jsonify({"error": "max_age_days doit \u00eatre entre 1 et 3650"})), 400
@@ -515,8 +538,15 @@ def main() -> None:
         default=int(os.environ.get("CORELEC_WEB_PORT", 8080)),
         help="Port HTTP (défaut: 8080 ou $CORELEC_WEB_PORT)",
     )
+    parser.add_argument(
+        "--pin-code", default=os.environ.get("CORELEC_PIN_CODE", ""),
+        help="Code PIN requis pour les commandes (écriture). Vide = sans protection.",
+    )
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
+
+    global _pin_code
+    _pin_code = args.pin_code.strip()
 
     env_level_name = os.environ.get("CORELEC_LOG_LEVEL", "INFO").upper()
     env_level = getattr(logging, env_level_name, logging.INFO)

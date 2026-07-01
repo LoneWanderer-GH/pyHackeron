@@ -296,8 +296,13 @@
       <button class="danger"  onclick="cmdBoostStop()">⏹ Arrêter boost</button>
     </div>
 
-    <div class="ctrl-row">
-      <label>Connexion BLE</label>
+    <div class="ctrl-row">      <label>Code PIN</label>
+      <input type="password" id="pin-input" placeholder="(vide si non configuré)" style="width:140px"
+             oninput="localStorage.setItem('corelec_pin',this.value)">
+      <span style="font-size:.75rem;color:var(--muted)">Mémorisé localement</span>
+    </div>
+
+    <div class="ctrl-row">      <label>Connexion BLE</label>
       <button class="neutral" onclick="cmdRetry()">↺ Reconnecter</button>
     </div>
 
@@ -349,12 +354,18 @@ function _initPhChart(consigne) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { enabled: true,
-        callbacks: { label: ctx => 'pH ' + ctx.parsed.y.toFixed(2) } } },
+        callbacks: { label: c => 'pH ' + c.parsed.y.toFixed(2) } } },
       scales: {
         x: {
-          type: 'time',
-          time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
-          ticks: { color: '#64748b', font: { size: 9 }, maxTicksLimit: 8 },
+          type: 'linear',
+          ticks: {
+            color: '#64748b', font: { size: 9 }, maxTicksLimit: 8,
+            callback: v => {
+              const d = new Date(v);
+              return d.getHours().toString().padStart(2,'0') + ':'
+                   + d.getMinutes().toString().padStart(2,'0');
+            }
+          },
           grid: { color: 'rgba(255,255,255,.05)' },
         },
         y: {
@@ -387,12 +398,13 @@ async function _loadPhHistory(consigne) {
   try {
     const r = await fetch('/api/history/ph');
     const data = await r.json();
+    // Show wrapper BEFORE init so Chart.js can measure the canvas size
+    $('ph-chart-wrap').style.display = 'block';
+    $('card-ph').classList.add('card-ph-wide');
     if (!_phChart) _initPhChart(consigne);
     const raw = (data.points || []).map(([ts, ph]) => ({ x: ts * 1000, y: ph }));
     _phChart.data.datasets[0].data = _smoothPoints(raw);
     _phChart.update('none');
-    $('ph-chart-wrap').style.display = 'block';
-    $('card-ph').classList.add('card-ph-wide');
   } catch(e) { console.warn('pH history:', e); }
 }
 
@@ -538,9 +550,22 @@ function connectSSE() {
   };
 }
 
+/* ── PIN helper ───────────────────────────────────────────────── */
+function _getPin() {
+  return localStorage.getItem('corelec_pin') || '';
+}
+
+/* ── Init PIN field from localStorage ───────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  const saved = localStorage.getItem('corelec_pin');
+  if (saved) $('pin-input').value = saved;
+});
+
 /* ── Commandes ────────────────────────────────────────────────── */
 async function sendCmd(payload) {
   const fb = $('cmd-feedback');
+  const pin = _getPin();
+  if (pin) payload = { ...payload, pin };
   try {
     const r = await fetch('/api/cmd', {
       method: 'POST',
@@ -565,8 +590,15 @@ function cmdBoostStop()  { sendCmd({ type: 'boost_stop' }); }
 
 async function cmdRetry() {
   const fb = $('cmd-feedback');
+  const body = {};
+  const pin = _getPin();
+  if (pin) body.pin = pin;
   try {
-    const r = await fetch('/api/retry', { method: 'POST' });
+    const r = await fetch('/api/retry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
     const data = await r.json();
     fb.textContent = data.ok ? '✓ Reconnexion demandée' : `✗ ${data.error}`;
     fb.style.color = data.ok ? 'var(--ok)' : 'var(--danger)';

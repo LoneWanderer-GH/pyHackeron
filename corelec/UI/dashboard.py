@@ -10,7 +10,7 @@ from html import escape
 import pyqtgraph as pg
 import bisect
 from corelec.UI.qt_compat import (
-    Qt, QTimer, QFontDatabase,
+    Qt, QTimer, Signal, QFontDatabase,
     QDoubleSpinBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QTextEdit,
     QProgressBar, QPushButton, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
@@ -31,7 +31,10 @@ logger = logging.getLogger(__name__)
 
 
 class Dashboard(QWidget):
-    
+    # Signal émis depuis le thread de refresh graphique vers le thread Qt principal.
+    # Transporte un dict avec toutes les séries calculées (xs/ys prêts à l'emploi).
+    _graph_data_ready = Signal(object)
+
     def __init__(
             self,
             state: RegulatorState,
@@ -607,9 +610,18 @@ class Dashboard(QWidget):
         
         self.timer = QTimer(self)
         self.timer.setInterval(2000)
-        self.timer.timeout.connect(self.refresh)
+        self.timer.timeout.connect(self._refresh_labels)   # rapide : pas de DB
         self.timer.start()
-        
+
+        # Timer séparé pour les graphiques : DB en thread, déclenché toutes les 30 s.
+        self._graph_refresh_running = False
+        self._graph_timer = QTimer(self)
+        self._graph_timer.setInterval(30_000)
+        self._graph_timer.timeout.connect(self._start_graph_refresh)
+        self._graph_timer.start()
+        # Connexion cross-thread : le worker émet, le slot s'exécute dans Qt
+        self._graph_data_ready.connect(self._apply_graph_data)
+
         signals.connection.connect(self.update_connection)
         signals.state_updated.connect(self._refresh_labels)  # rapide : pas de DB
         signals.db_sync_complete.connect(self._on_db_sync_complete)
@@ -1131,12 +1143,41 @@ class Dashboard(QWidget):
         )
 
     def refresh(self):
-        """Rafraîchissement complet : labels + graphiques (accès DB).
-        Appelé par le timer toutes les 2 s et après un DB sync.
-        Ne pas connecter à state_updated (trop fréquent).
+        """Rafraîchissement complet : labels immédiat + graphiques asynchrones.
+        Appelé après un DB sync ou explicitement. Ne pas connecter à state_updated.
         """
         self._refresh_labels()
+        self._start_graph_refresh()
 
+    # ------------------------------------------------------------------
+    # Refresh graphiques asynchrone (DB → thread → Signal → main thread)
+    # ------------------------------------------------------------------
+
+    def _start_graph_refresh(self) -> None:
+        """Déclenche le calcul des graphiques dans un thread séparé.
+        Ignoré si un refresh est déjà en cours (pas d'empilement).
+        """
+        if self._graph_refresh_running:
+            return
+        self._graph_refresh_running = True
+        threading.Thread(target=self._graph_refresh_worker, daemon=True).start()
+
+    def _graph_refresh_worker(self) -> None:
+        """Tourne dans un thread daemon : lit la DB et calcule toutes les séries."""
+        try:
+            data = self._compute_graph_data()
+        except Exception as exc:
+            logger.warning("graph refresh worker: %s", exc)
+            data = None
+        finally:
+            self._graph_refresh_running = False
+        if data is not None:
+            self._graph_data_ready.emit(data)
+
+    def _compute_graph_data(self) -> dict:
+        """Lit decoded_frames + connection_events et calcule tous les vecteurs (xs, ys).
+        S'exécute dans un thread séparé — aucun accès aux widgets Qt.
+        """
         _h77 = self._decode_frames_history(77, 100_000, self._DISPLAY_STEP_S)
         _h83 = self._decode_frames_history(83, 100_000, self._DISPLAY_STEP_S)
         _h65 = self._decode_frames_history(65, 100_000, self._DISPLAY_STEP_S)
@@ -1156,8 +1197,9 @@ class Dashboard(QWidget):
         inversion_period = _h65.get('inversion_period_min', [])
         boost_remain = _h65.get('boost_remaining_min', [])
         polarity_phase = _h65.get('polarity_phase_a', [])
-        
-        def to_plot_points(history: list[tuple[str, float]], gap_threshold_seconds: float = 120.0) -> tuple[list[float], list[float]]:
+        pump_hist = _h77.get('pompe_moins_active', [])
+
+        def to_plot_points(history, gap_threshold_seconds=120.0):
             xs: list[float] = []
             ys: list[float] = []
             previous_ts: float | None = None
@@ -1166,7 +1208,6 @@ class Dashboard(QWidget):
                     x = datetime.fromisoformat(ts).timestamp()
                 except Exception:
                     continue
-
                 if previous_ts is not None:
                     gap = x - previous_ts
                     in_disconnect = any(
@@ -1176,7 +1217,6 @@ class Dashboard(QWidget):
                     if gap > gap_threshold_seconds or in_disconnect:
                         xs.append(x)
                         ys.append(float('nan'))
-
                 xs.append(x)
                 ys.append(value)
                 previous_ts = x
@@ -1184,55 +1224,58 @@ class Dashboard(QWidget):
 
         ph_x, ph_y = to_plot_points(ph)
         ph_cons_x, ph_cons_y = to_plot_points(ph_consigne)
-        pump_hist = _h77.get('pompe_moins_active', [])
         pump_x, pump_y = to_plot_points(pump_hist)
-        electro_x, electro_y = to_plot_points(electrolyse_consigne_courante)
-        electro_cons_x, electro_cons_y = to_plot_points(electrolyse_consigne_volet_courante)
-        inversion_timer_x, inversion_timer_y = to_plot_points(inversion_timer)
-        inversion_period_x, inversion_period_y = to_plot_points(inversion_period)
+        electro_x, electro_y = to_plot_points(electrolyse)
+        electro_cons_x, electro_cons_y = to_plot_points(electrolyse_volet)
+        inv_timer_x, inv_timer_y = to_plot_points(inversion_timer)
+        inv_period_x, inv_period_y = to_plot_points(inversion_period)
         boost_x, boost_y = to_plot_points(boost_remain)
-        polarity_phase_x, polarity_phase_y = to_plot_points(polarity_phase)
+        polarity_x, polarity_y = to_plot_points(polarity_phase)
 
-        # expose arrays for crosshair nearest-point lookup
-        self.ph_x, self.ph_y = ph_x, ph_y
-        self.ph_cons_x, self.ph_cons_y = ph_cons_x, ph_cons_y
-        self.pump_x = pump_x
-        self.electro_x, self.electro_y = electro_x, electro_y
-        self.electro_cons_x, self.electro_cons_y = electro_cons_x, electro_cons_y
-        self.inversion_timer_x, self.inversion_timer_y = inversion_timer_x, inversion_timer_y
-        self.inversion_period_x, self.inversion_period_y = inversion_period_x, inversion_period_y
-        self.boost_x, self.boost_y = boost_x, boost_y
-        self.polarity_phase_x = polarity_phase_x
+        pump_state_y = [float('nan') if v != v else (1.0 if v else 0.0) for v in pump_y]
+        polarity_state_y = [float('nan') if v != v else (1.0 if v else 0.0) for v in polarity_y]
 
-        self.ph_curve.setData(ph_x, ph_y, connect='finite')
-        self.ph_setpoint_curve.setData(ph_cons_x, ph_cons_y, connect='finite')
-        # plot pump state on secondary right axis as binary 0/1
-        pump_state_y = []
-        for val in pump_y:
-            if val != val:
-                pump_state_y.append(float('nan'))
-            else:
-                pump_state_y.append(1.0 if val else 0.0)
-        self.pump_state_y = pump_state_y
-        self.ph_pump_curve.setData(pump_x, pump_state_y, connect='finite')
+        return {
+            'ph_x': ph_x, 'ph_y': ph_y,
+            'ph_cons_x': ph_cons_x, 'ph_cons_y': ph_cons_y,
+            'pump_x': pump_x, 'pump_state_y': pump_state_y,
+            'electro_x': electro_x, 'electro_y': electro_y,
+            'electro_cons_x': electro_cons_x, 'electro_cons_y': electro_cons_y,
+            'inversion_timer_x': inv_timer_x, 'inversion_timer_y': inv_timer_y,
+            'inversion_period_x': inv_period_x, 'inversion_period_y': inv_period_y,
+            'boost_x': boost_x, 'boost_y': boost_y,
+            'polarity_phase_x': polarity_x, 'polarity_phase_state_y': polarity_state_y,
+        }
+
+    def _apply_graph_data(self, data: dict) -> None:
+        """Appelé sur le thread Qt principal via Signal.
+        Met à jour toutes les courbes et expose les tableaux pour le crosshair.
+        """
+        # Exposer les tableaux pour _on_mouse_moved
+        for key, val in data.items():
+            setattr(self, key, val)
+
+        self.ph_curve.setData(data['ph_x'], data['ph_y'], connect='finite')
+        self.ph_setpoint_curve.setData(data['ph_cons_x'], data['ph_cons_y'], connect='finite')
+        self.ph_pump_curve.setData(data['pump_x'], data['pump_state_y'], connect='finite')
         self.ph_right_vb.setYRange(0, 2, padding=0)
-        self.electro_curve.setData(electro_x, electro_y, connect='finite')
-        self.electro_setpoint_curve.setData(electro_cons_x, electro_cons_y, connect='finite')
-        self.inversion_timer_curve.setData(inversion_timer_x, inversion_timer_y, connect='finite')
-        self.inversion_period_curve.setData(inversion_period_x, inversion_period_y, connect='finite')
-        # courbe binaire phase de polarité sur l'axe droit
-        polarity_state_y = []
-        for val in polarity_phase_y:
-            if val != val:  # NaN
-                polarity_state_y.append(float('nan'))
-            else:
-                polarity_state_y.append(1.0 if val else 0.0)
-        self.polarity_phase_state_y = polarity_state_y
-        self.polarity_phase_curve.setData(polarity_phase_x, polarity_state_y, connect='finite')
-        self.cycle_right_vb.setYRange(0, 2, padding=0)
-        self.boost_curve.setData(boost_x, boost_y, connect='finite')
 
-        # Mettre à jour les courbes RE actives avec le dernier historique
+        self.electro_curve.setData(data['electro_x'], data['electro_y'], connect='finite')
+        self.electro_setpoint_curve.setData(
+            data['electro_cons_x'], data['electro_cons_y'], connect='finite')
+
+        self.inversion_timer_curve.setData(
+            data['inversion_timer_x'], data['inversion_timer_y'], connect='finite')
+        self.inversion_period_curve.setData(
+            data['inversion_period_x'], data['inversion_period_y'], connect='finite')
+
+        self.polarity_phase_curve.setData(
+            data['polarity_phase_x'], data['polarity_phase_state_y'], connect='finite')
+        self.cycle_right_vb.setYRange(0, 2, padding=0)
+
+        self.boost_curve.setData(data['boost_x'], data['boost_y'], connect='finite')
+
+        # Mettre à jour les courbes RE actives
         for _lbl in list(self.reverse_series_items):
             self._refresh_reverse_series(_lbl)
     
