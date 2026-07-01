@@ -277,23 +277,48 @@ class OneBLEClient:
     # ---------------------------------------------------------------- connexion normale
 
     async def connect_and_auth(self) -> None:
-        """Connexion + authentification + sync RTC (module déjà appairé).
+        """Connexion + authentification + bond BLE + sync RTC.
 
         Séquence :
-          1. Connexion physique — BlueZ réutilise le bond stocké (créé lors du
-             premier --pair) et établit automatiquement le lien chiffré.
-          2. Auth AES applicative (FBDE0001 → FBDE0003).
-          3. Sync RTC (optionnelle, requiert lien chiffré).
-
-        Ne pas rappeler pair() ici : cela provoque un re-connect BlueZ qui
-        efface le cache service-discovery de bleak, causant
-        "Service Discovery has not been performed yet".
+          1. Connexion physique.
+          2. Auth AES applicative (FBDE0001 → FBDE0003) — sans chiffrement BLE.
+          3. Bond BLE via pair() — établit le lien chiffré requis pour
+             FBDE0104 (status) et le service RTC (Current Time 0x1805).
+             pair() peut provoquer un disconnect/reconnect BlueZ interne.
+             → Si disconnect : reconnecter + re-auth sur lien chiffré.
+             → Sinon : rafraîchir le cache service-discovery de bleak.
+          4. Sync RTC (optionnelle).
         """
         logger.info("Connexion à %s", self.address)
         self._client = BleakClient(self.address)
         await self._client.connect()
         logger.info("Connecté")
+
+        # Auth applicative AES (pas besoin de chiffrement pour FBDE0003)
         await self._authenticate()
+
+        # Bond BLE — requis pour les caractéristiques chiffrées
+        try:
+            await self._client.pair()
+            logger.info("Bond BLE confirmé")
+        except Exception as e:
+            # Déjà bondé, rejeté par le module ou non supporté → on continue
+            logger.debug("pair(): %s", e)
+
+        if not self._client.is_connected:
+            # pair() a provoqué un disconnect BlueZ → reconnecter avec chiffrement
+            logger.info("Re-connexion sur lien chiffré…")
+            await self._client.connect()
+            # Re-auth sur le nouveau lien (session AES réinitialisée)
+            await self._authenticate()
+            logger.info("Re-authentifié")
+        else:
+            # Forcer la re-découverte des services si pair() a vidé le cache bleak
+            try:
+                await self._client.get_services()
+            except Exception:
+                pass
+
         await self._sync_rtc()
         logger.info("Auth + RTC OK")
 

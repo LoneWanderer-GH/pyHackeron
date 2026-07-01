@@ -116,7 +116,8 @@ class ZmqSubscriberThread(threading.Thread):
 
         while True:
             try:
-                raw = sock.recv_string()
+                # Le daemon publie en send_multipart([topic_bytes, json_bytes])
+                frames = sock.recv_multipart()
             except zmq.Again:
                 continue
             except zmq.ZMQError as exc:
@@ -124,13 +125,11 @@ class ZmqSubscriberThread(threading.Thread):
                 time.sleep(2)
                 continue
 
-            # Format : "<topic> <json>"
-            parts = raw.split(" ", 1)
-            if len(parts) != 2:
+            if len(frames) < 2:
                 continue
-            topic, payload_str = parts
+            topic = frames[0].decode()
             try:
-                payload = json.loads(payload_str)
+                payload = json.loads(frames[1].decode())
             except json.JSONDecodeError:
                 logger.warning("JSON invalide sur topic %s", topic)
                 continue
