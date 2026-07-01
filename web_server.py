@@ -285,32 +285,38 @@ class ZmqListener(threading.Thread):
             if decoded.sel is not None:
                 updates["sel"] = round(decoded.sel, 1)
             updates.update({
-                "alarme": decoded.alarme,
-                "warning": decoded.warning,
-                "alarm_rdx": decoded.alarm_rdx,
-                "pompe_plus_active": decoded.pompe_plus_active,
-                "pompe_moins_active": decoded.pompe_moins_active,
+                "alarme":               decoded.alarme,
+                "warning":              decoded.warning,
+                "alarm_rdx":            decoded.alarm_rdx,
+                "pompe_plus_active":    decoded.pompe_plus_active,
+                "pompe_moins_active":   decoded.pompe_moins_active,
                 "pompe_chl_elx_active": decoded.pompe_chl_elx_active,
-                "regulation_active": decoded.regulation_active,
-                "relais_fil_actif": decoded.relais_fil_actif,
-                "pompe_plus_presence": decoded.pompe_plus_presence,
+                "regulation_active":    decoded.regulation_active,
+                "relais_fil_actif":     decoded.relais_fil_actif,
+                "pompe_plus_presence":  decoded.pompe_plus_presence,
                 "pompe_moins_presence": decoded.pompe_moins_presence,
-                "capteur_temp": decoded.capteur_temp,
+                "capteur_temp":         decoded.capteur_temp,
                 "config_capteur_sel_actif": decoded.config_capteur_sel_actif,
-                "flow_switch_m": decoded.flow_switch_m,
-                "pompe_chlore": decoded.pompe_chlore,
-                "pompes_forcees": decoded.pompes_forcees,
+                "flow_switch_m":        decoded.flow_switch_m,
+                "pompe_chlore":         decoded.pompe_chlore,
+                "pompes_forcees":       decoded.pompes_forcees,
             })
-            # Mise à jour des capacités détectées
-            with _state_lock:
-                caps = _state["capabilities"]
-                caps["have_data"]       = True
-                caps["has_temp"]        = decoded.capteur_temp
-                caps["has_sel"]         = decoded.config_capteur_sel_actif
-                caps["has_redox"]       = decoded.capteur_redox   # bit 6 byte13 : électrode Redox présente
-                caps["has_pompe_plus"]  = decoded.pompe_plus_presence
-                caps["has_pompe_moins"] = decoded.pompe_moins_presence
-                caps["has_pompe_chlore"] = decoded.pompe_chlore
+            # Mise à jour des capacités détectées.
+            # Encapsulé dans un try/except séparé afin que les données de mesure
+            # (pool.ph, température…) soient toujours persistées même si cette
+            # partie échoue (ex. champ inconnu sur ancienne version du décodeur).
+            try:
+                with _state_lock:
+                    caps = _state["capabilities"]
+                    caps["have_data"]       = True
+                    caps["has_temp"]        = decoded.capteur_temp
+                    caps["has_sel"]         = decoded.config_capteur_sel_actif
+                    caps["has_redox"]       = getattr(decoded, "capteur_redox", False)
+                    caps["has_pompe_plus"]  = decoded.pompe_plus_presence
+                    caps["has_pompe_moins"] = decoded.pompe_moins_presence
+                    caps["has_pompe_chlore"] = decoded.pompe_chlore
+            except Exception as _cap_exc:
+                logger.debug("capabilities update skipped: %s", _cap_exc)
 
             if decoded.ph_consigne is not None:
                 updates["ph_consigne"] = round(decoded.ph_consigne, 2)
