@@ -230,6 +230,13 @@ class OneBLEClient:
         await client._client.connect()
         logger.info("Connecté (appairage)")
 
+        # Bonding BLE — nécessaire pour les reconnexions chiffrées ultérieures
+        try:
+            await client._client.pair()
+            logger.debug("BLE bonding OK (appairage)")
+        except Exception as e:
+            logger.debug("BLE pair() ignoré (appairage): %s", e)
+
         # 1. Identification
         model    = (await client._client.read_gatt_char(CHR_MODEL_UUID)).decode().strip("\x00")
         serial   = (await client._client.read_gatt_char(CHR_SERIAL_UUID)).decode().strip("\x00")
@@ -265,6 +272,14 @@ class OneBLEClient:
         self._client = BleakClient(self.address)
         await self._client.connect()
         logger.info("Connecté")
+        # Chiffrement BLE (bonding BlueZ) requis pour accéder aux caractéristiques
+        # protégées (ex: CHR_STATUS). L'app mobile le fait via l'OS de façon transparente.
+        try:
+            await self._client.pair()
+            logger.debug("BLE bonding OK")
+        except Exception as e:
+            # Ignoré si déjà bondé ou si le backend ne supporte pas pair()
+            logger.debug("BLE pair() ignoré: %s", e)
         await self._authenticate()
         await self._sync_rtc()
         logger.info("Auth + RTC OK")
