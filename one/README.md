@@ -191,13 +191,3 @@ Exemple `one/status` :
 
 Les deux démons peuvent tourner simultanément — BlueZ gère l'adaptateur BLE.
 
-
----
-
-## Références
-
-- `one/one_ble.py` — implémentation Python
-- `one/one.js` — bundle JS décompilé (source du reverse)
-- `one/one.decompiled.js` — décompilé lisible (Hermes)
-- `one/OneClient.py` — client de test préexistant (partiel)
-- `one/test_connnect.py` — tests manuels avec UUIDs + ctypes bitfield
