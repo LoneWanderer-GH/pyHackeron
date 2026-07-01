@@ -1,0 +1,75 @@
+{
+  "pluginAlias": "Hackeron",
+  "pluginType": "accessory",
+  "singular": false,
+  "strictValidation": false,
+  "schema": {
+    "type": "object",
+    "required": ["name", "webServerUrl"],
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "title": "Accessory Name",
+        "type": "string",
+        "default": "Piscine",
+        "description": "Name shown in the Home app."
+      },
+      "webServerUrl": {
+        "title": "Web Server URL",
+        "type": "string",
+        "default": "http://192.168.0.16:8999",
+        "description": "Base URL of the corelec web_server.py (e.g. http://192.168.0.16:8999)."
+      },
+      "pollInterval": {
+        "title": "Poll Interval (seconds)",
+        "type": "integer",
+        "default": 30,
+        "minimum": 5,
+        "maximum": 300,
+        "description": "How often to poll /api/state. HomeKit also triggers on-demand reads."
+      },
+      "boostMinutes": {
+        "title": "Default Boost Duration (minutes)",
+        "type": "integer",
+        "default": 120,
+        "minimum": 10,
+        "maximum": 480,
+        "description": "Duration used when the Boost switch is turned on from HomeKit."
+      },
+      "clearOnDisconnect": {
+        "title": "Clear Values When Disconnected",
+        "type": "boolean",
+        "default": true,
+        "description": "When true (recommended), accessories show '—' / Not Responding when BLE is lost. When false, last known values are kept."
+      },
+      "exposeTemp": {
+        "title": "Expose Temperature Sensor",
+        "type": "boolean",
+        "default": true,
+        "description": "Set to false if your controller has no water temperature sensor."
+      },
+      "exposeRedox": {
+        "title": "Expose Redox Sensor",
+        "type": "boolean",
+        "default": false,
+        "description": "Set to true only if your controller has a Redox/ORP electrode."
+      }
+    }
+  },
+  "layout": [
+    { "key": "name" },
+    { "key": "webServerUrl" },
+    {
+      "type": "fieldset",
+      "title": "Connection",
+      "expandable": true,
+      "items": ["pollInterval", "clearOnDisconnect"]
+    },
+    {
+      "type": "fieldset",
+      "title": "Sensors & Accessories",
+      "expandable": true,
+      "items": ["boostMinutes", "exposeTemp", "exposeRedox"]
+    }
+  ]
+}

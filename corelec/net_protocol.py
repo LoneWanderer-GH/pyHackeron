@@ -53,6 +53,7 @@ class Topic:
     CMD_CANCEL  = "corelec/cmd/cancel"
     CMD_DB_SYNC = "corelec/cmd/db_sync"     # demande un dump raw_frames depuis le daemon
     CMD_BLE_COMMAND = "corelec/cmd/ble_command"  # commande d'écriture GATT
+    CMD_COMPACT_DB  = "corelec/cmd/compact_db"   # nettoyage / compression de la base de données
 
 
 # ---------------------------------------------------------------------------

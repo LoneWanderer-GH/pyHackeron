@@ -11,8 +11,10 @@ Routes:
     GET  /              → dashboard HTML
     GET  /api/state     → snapshot JSON de l'état courant
     GET  /api/stream    → SSE (text/event-stream) — mises à jour live
+    GET  /api/history/ph→ historique pH 48 h [{"ts": epoch, "ph": value}, ...]
     POST /api/cmd       → commande → daemon ZMQ  ({"type": "boost_start", "minutes": 120})
     POST /api/retry     → demande retry connexion BLE au daemon
+    POST /api/compact_db→ nettoyage / compression de la base de données du daemon
 
 Compatible Python 3.9+, sans Qt. Dépendances: flask, pyzmq.
 Testé sur Synology DSM 7.x / Python 3.9 et Raspberry Pi 3.
@@ -20,6 +22,7 @@ Testé sur Synology DSM 7.x / Python 3.9 et Raspberry Pi 3.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import logging
 import os
@@ -51,6 +54,25 @@ _HERE = Path(__file__).parent
 # État partagé (mis à jour par le thread ZMQ, lu par Flask)
 # ---------------------------------------------------------------------------
 _state_lock = threading.Lock()
+
+# Historique pH en mémoire : 48 h, un point par trame (max ~5760 à 1 trame/30 s).
+_PH_HISTORY_MAX_SEC = 48 * 3600
+_ph_history: collections.deque = collections.deque()  # (epoch_float, ph_float)
+_ph_history_lock = threading.Lock()
+
+
+def _ph_history_push(ts_iso: str, ph: float) -> None:
+    """Ajoute un point pH et élague les entrées plus anciennes que 48 h."""
+    try:
+        epoch = datetime.fromisoformat(ts_iso).timestamp()
+    except Exception:
+        epoch = time.time()
+    cutoff = epoch - _PH_HISTORY_MAX_SEC
+    with _ph_history_lock:
+        _ph_history.append((epoch, ph))
+        while _ph_history and _ph_history[0][0] < cutoff:
+            _ph_history.popleft()
+
 
 _state: Dict[str, Any] = {
     "connection": {
@@ -102,6 +124,18 @@ _state: Dict[str, Any] = {
         "warning": 0,
         "alarm_rdx": 0,
         "elx_fault_code": 0,
+    },
+    # Capacités du régulateur détectées depuis les trames BLE.
+    # have_data=False tant qu'aucune trame Frame77 n'a été reçue.
+    # Les cartes/champs sont cachés dans l'UI tant que have_data=False.
+    "capabilities": {
+        "have_data": False,      # True dès la première trame Frame77
+        "has_temp":  True,       # capteur température (byte13 bit2)
+        "has_sel":   False,      # capteur sel/salinité (byte13 bit3)
+        "has_redox": False,      # électrode Redox (déduit de redox_consigne != None)
+        "has_pompe_plus":  False, # pompe pH+ (byte13 bit1)
+        "has_pompe_moins": False, # pompe pH- (byte13 bit0)
+        "has_pompe_chlore": False, # pompe chlore (byte13 bit5)
     },
     "ts": datetime.now().isoformat(),
     "web_server_uptime_s": 0,
@@ -228,6 +262,8 @@ class ZmqListener(threading.Thread):
         if isinstance(decoded, Decoded77):
             if decoded.ph is not None:
                 updates["ph"] = round(decoded.ph, 2)
+                # Historique pH pour /api/history/ph
+                _ph_history_push(_state["ts"], round(decoded.ph, 2))
             if decoded.redox is not None:
                 updates["redox"] = decoded.redox
             if decoded.temp is not None:
@@ -251,6 +287,18 @@ class ZmqListener(threading.Thread):
                 "pompe_chlore": decoded.pompe_chlore,
                 "pompes_forcees": decoded.pompes_forcees,
             })
+            # Mise à jour des capacités détectées
+            with _state_lock:
+                caps = _state["capabilities"]
+                caps["have_data"]       = True
+                caps["has_temp"]        = decoded.capteur_temp
+                caps["has_sel"]         = decoded.config_capteur_sel_actif
+                caps["has_pompe_plus"]  = decoded.pompe_plus_presence
+                caps["has_pompe_moins"] = decoded.pompe_moins_presence
+                caps["has_pompe_chlore"] = decoded.pompe_chlore
+                # Redox détecté si une consigne non-nulle a déjà été reçue
+                if _state["pool"].get("redox_consigne") is not None:
+                    caps["has_redox"] = True
 
         elif isinstance(decoded, Decoded83):
             if decoded.ph_consigne is not None:
@@ -263,6 +311,9 @@ class ZmqListener(threading.Thread):
         elif isinstance(decoded, Decoded69):
             if decoded.redox_consigne is not None:
                 updates["redox_consigne"] = decoded.redox_consigne
+                # Si une consigne Redox existe, le r\u00e9gulateur a une \u00e9lectrode Redox
+                with _state_lock:
+                    _state["capabilities"]["has_redox"] = True
 
         elif isinstance(decoded, Decoded65):
             updates.update({
@@ -404,6 +455,34 @@ def api_retry() -> Response:
         send_cmd(Topic.CMD_RETRY)
         return _cors_headers(jsonify({"ok": True}))
     except Exception as exc:
+        return _cors_headers(jsonify({"error": str(exc)})), 500
+
+
+@app.route("/api/history/ph")
+def api_history_ph() -> Response:
+    """Retourne l'historique pH des 48 derni\u00e8res heures.
+
+    R\u00e9ponse : {"points": [[epoch_float, ph_float], ...]}
+    """
+    with _ph_history_lock:
+        points = list(_ph_history)
+    resp = jsonify({"points": points})
+    return _cors_headers(resp)
+
+
+@app.route("/api/compact_db", methods=["POST", "OPTIONS"])
+def api_compact_db() -> Response:
+    if request.method == "OPTIONS":
+        return _cors_headers(Response("", 204))
+    data = request.get_json(silent=True) or {}
+    max_age_days = int(data.get("max_age_days", 30))
+    if not (1 <= max_age_days <= 3650):
+        return _cors_headers(jsonify({"error": "max_age_days doit \u00eatre entre 1 et 3650"})), 400
+    try:
+        send_cmd(Topic.CMD_COMPACT_DB, {"max_age_days": max_age_days})
+        return _cors_headers(jsonify({"ok": True, "max_age_days": max_age_days}))
+    except Exception as exc:
+        logger.error("api_compact_db: %s", exc)
         return _cors_headers(jsonify({"error": str(exc)})), 500
 
 

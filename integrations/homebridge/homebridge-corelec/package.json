@@ -1,10 +1,32 @@
 {
   "name": "homebridge-corelec",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "displayName": "Corelec Pool",
-  "description": "Homebridge plugin for Corelec Pool Controller",
+  "description": "Homebridge plugin for Corelec/Akeron pool controller — pH, temperature, electrolysis and boost via BLE daemon",
+  "license": "MIT",
+  "author": "Corelec Monitor contributors",
+  "homepage": "https://github.com/LoneWanderer-GH/pyHackeron",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LoneWanderer-GH/pyHackeron.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LoneWanderer-GH/pyHackeron/issues"
+  },
   "main": "index.js",
-  "keywords": ["homebridge-plugin"],
+  "scripts": {
+    "prepublishOnly": "npm run lint",
+    "lint": "node --check index.js"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "homebridge",
+    "pool",
+    "akeron",
+    "corelec",
+    "ph",
+    "electrolysis"
+  ],
   "engines": {
     "node": ">=18.0.0",
     "homebridge": ">=1.6.0"
@@ -12,5 +34,10 @@
   "peerDependencies": {
     "homebridge": ">=1.6.0"
   },
+  "files": [
+    "index.js",
+    "config.schema.json",
+    "README.md"
+  ],
   "dependencies": {}
 }

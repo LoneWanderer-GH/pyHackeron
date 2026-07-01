@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import sqlite3
@@ -343,3 +343,39 @@ class Database:
             (limit,),
         )
         return list(reversed(cur.fetchall()))
+
+    def compact_db(self, max_age_days: int = 30) -> dict:
+        """Supprime les donn\u00e9es plus anciennes que max_age_days jours et compresse la base.
+
+        Retourne un dictionnaire avec le nombre de lignes supprim\u00e9es et la taille du fichier.
+        """
+        cutoff = (datetime.now() - timedelta(days=max_age_days)).isoformat()
+        # Vider le cache \u00e9parse pour forcer un re-stockage apr\u00e8s nettoyage.
+        self._sparse_json.clear()
+        self._sparse_ts.clear()
+        with self.lock:
+            n_raw  = self.conn.execute(
+                "DELETE FROM raw_frames WHERE ts < ?", (cutoff,)
+            ).rowcount
+            n_dec  = self.conn.execute(
+                "DELETE FROM decoded_frames WHERE ts < ?", (cutoff,)
+            ).rowcount
+            n_conn = self.conn.execute(
+                "DELETE FROM connection_events WHERE ts < ?", (cutoff,)
+            ).rowcount
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self.conn.commit()
+            self.conn.execute("VACUUM")
+            self.conn.commit()
+
+        size_mb = round(self.path.stat().st_size / 1_048_576, 2) if self.path.exists() else 0.0
+        result = {
+            "deleted_raw": n_raw,
+            "deleted_decoded": n_dec,
+            "deleted_connection_events": n_conn,
+            "max_age_days": max_age_days,
+            "size_mb": size_mb,
+        }
+        logger.info("compact_db: supprim\u00e9 %d raw + %d decoded + %d events (>%d j) \u2014 %.2f Mo",
+                    n_raw, n_dec, n_conn, max_age_days, size_mb)
+        return result

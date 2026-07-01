@@ -92,10 +92,13 @@ class Dashboard(QWidget):
         self.sync_db_button.setVisible(False)  # affiché uniquement en mode réseau
         self._redecode_button = QPushButton("Re-décoder DB")
         self._redecode_button.setToolTip("Efface et re-décode tous les raw_frames → decoded_frames")
+        self._compact_button = QPushButton("✂ Compacter DB")
+        self._compact_button.setToolTip("Supprime les données de plus de 30 jours et compresse la base")
         self.retry_button.clicked.connect(lambda _: signals.retry_requested.emit())
         self.cancel_button.clicked.connect(lambda _: signals.cancel_requested.emit())
         self.sync_db_button.clicked.connect(self._on_sync_db)
         self._redecode_button.clicked.connect(self._on_redecode_clicked)
+        self._compact_button.clicked.connect(self._on_compact_db_clicked)
 
         # Indicateur ZMQ (mode réseau uniquement)
         self.zmq_status_label = QLabel("")
@@ -111,6 +114,7 @@ class Dashboard(QWidget):
         top.addWidget(self.cancel_button)
         top.addWidget(self.sync_db_button)
         top.addWidget(self._redecode_button)
+        top.addWidget(self._compact_button)
         self.tabs = QTabWidget()
         
         dashboard_tab = QWidget()
@@ -363,6 +367,21 @@ class Dashboard(QWidget):
         graphs_layout.addWidget(self.cycle_graph)
         graphs_layout.addWidget(self.boost_graph)
 
+        # ── Alignement des axes : largeurs gauche/droite identiques sur tous les graphes ──
+        # ph_graph et cycle_graph ont un axe droit avec label+ticks ; electro_graph et
+        # boost_graph n'ont pas d'axe droit. On force une largeur fixe identique sur tous
+        # les axes gauche et droit pour que les zones de tracé s'alignent dans la VBox.
+        _LEFT_W  = 60   # largeur de l'axe gauche en pixels
+        _RIGHT_W = 60   # largeur de l'axe droit en pixels
+        for _g in self.graphs:
+            _pi = _g.getPlotItem()
+            _pi.getAxis('left').setWidth(_LEFT_W)
+            if not _pi.getAxis('right').isVisible():
+                _pi.showAxis('right')
+                _pi.getAxis('right').setStyle(showValues=False)
+                _pi.getAxis('right').setLabel('')
+            _pi.getAxis('right').setWidth(_RIGHT_W)
+
         # prepare interactive series lists
         self._plot_series[self.ph_graph] = [
             {'x':'ph_x','y':'ph_y','color':'yellow','name':'pH'},
@@ -403,9 +422,18 @@ class Dashboard(QWidget):
         self.log_view = QTextEdit()
         self.log_view.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
         self.log_view.setStyleSheet("QTextEdit { background: #101316; color: #d7e3f4; }")
-        
         self.log_view.setReadOnly(True)
-        
+        self.log_view.setMaximumBlockCount(2000)  # limite automatique : jamais plus de 2000 lignes
+
+        _log_clear_btn = QPushButton("⎚ Vider les logs")
+        _log_clear_btn.setFixedWidth(140)
+        _log_clear_btn.clicked.connect(self.log_view.clear)
+
+        _log_top = QHBoxLayout()
+        _log_top.addWidget(_log_clear_btn)
+        _log_top.addStretch()
+
+        log_layout.addLayout(_log_top)
         log_layout.addWidget(self.log_view)
         
         log_tab.setLayout(log_layout)
@@ -708,8 +736,28 @@ class Dashboard(QWidget):
             self._redecoding = False
             self._redecode_button.setEnabled(True)
             self._redecode_button.setText("Re-décoder DB")
+        if table == "compact":
+            self._compact_button.setEnabled(True)
+            self._compact_button.setText("✂ Compacter DB")
         self._load_reverse_history()
         self.refresh()
+
+    def _on_compact_db_clicked(self) -> None:
+        self._compact_button.setEnabled(False)
+        self._compact_button.setText("En cours…")
+
+        def _worker() -> None:
+            try:
+                result = self.database.compact_db(max_age_days=30)
+                msg = (f"Compactage terminé : {result['deleted_raw']} raw, "
+                       f"{result['deleted_decoded']} decoded supprimées "
+                       f"— {result['size_mb']} Mo")
+                logger.info(msg)
+            except Exception as exc:
+                logger.warning("Compact DB erreur : %s", exc)
+            signals.db_sync_complete.emit("compact")
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _setup_crosshair(self, graph: pg.PlotWidget):
         vline = pg.InfiniteLine(angle=90, movable=False, pen=pg.mkPen(color='w', width=1))

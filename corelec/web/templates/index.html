@@ -177,6 +177,21 @@
       .ctrl-row label { min-width: unset; width: 100%; }
     }
 
+    /* ── pH chart ────────────────────────────────────────────── */
+    .ph-chart-wrap {
+      margin-top: .6rem;
+      height: 80px;
+      position: relative;
+    }
+    .card.card-ph-wide {
+      grid-column: span 2;
+    }
+    @media (max-width: 480px) {
+      .card.card-ph-wide { grid-column: span 1; }
+    }
+    /* ── Capability-hidden cards ─────────────────────────────── */
+    .cap-hidden { display: none !important; }
+
     /* ── Offline overlay ─────────────────────────────────────── */
     #offline-msg {
       position: fixed; inset: 0;
@@ -187,6 +202,8 @@
       z-index: 100;
     }
   </style>
+<!-- Chart.js for pH history sparkline -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -210,6 +227,9 @@
       <div class="card-value" id="val-ph">—</div>
       <div class="card-sub">Consigne : <span id="val-ph-consigne">—</span></div>
       <div class="card-sub">Pompe pH− : <span id="val-pompe">—</span></div>
+      <div class="ph-chart-wrap" id="ph-chart-wrap" style="display:none">
+        <canvas id="ph-chart"></canvas>
+      </div>
     </div>
 
     <!-- Température ───────────────────── -->
@@ -219,8 +239,15 @@
       <div class="card-unit">°C</div>
     </div>
 
+    <!-- Sel ───────────────────────────── -->
+    <div class="card cap-hidden" id="card-sel">
+      <div class="card-label">Sel</div>
+      <div class="card-value" id="val-sel">—</div>
+      <div class="card-unit">g/L</div>
+    </div>
+
     <!-- Redox ─────────────────────────── -->
-    <div class="card" id="card-redox">
+    <div class="card cap-hidden" id="card-redox">
       <div class="card-label">Redox</div>
       <div class="card-value" id="val-redox">—</div>
       <div class="card-unit">mV</div>
@@ -294,10 +321,123 @@ function phClass(ph, consigne) {
   return 'ph-ok';
 }
 
+/* ── pH history chart (Chart.js) ─────────────────────────────── */
+let _phChart = null;
+let _phChartLoaded = false;
+let _lastPh = null;
+let _lastPhTs = null;
+
+function _initPhChart(consigne) {
+  const canvas = $('ph-chart');
+  if (!canvas || _phChart) return;
+  const ctx = canvas.getContext('2d');
+  const c = consigne ?? 7.2;
+  _phChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        data: [],
+        borderColor: '#facc15',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.35,
+        fill: false,
+      }]
+    },
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: true,
+        callbacks: { label: ctx => 'pH ' + ctx.parsed.y.toFixed(2) } } },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+          ticks: { color: '#64748b', font: { size: 9 }, maxTicksLimit: 8 },
+          grid: { color: 'rgba(255,255,255,.05)' },
+        },
+        y: {
+          min: Math.max(0, c - 1.2),
+          max: Math.min(14, c + 1.2),
+          ticks: { color: '#64748b', font: { size: 9 }, stepSize: 0.2 },
+          grid: { color: 'rgba(255,255,255,.07)' },
+        },
+      },
+    },
+  });
+}
+
+function _smoothPoints(pts, windowSec = 900) {
+  /* Lissage par moyenne mobile sur fenêtre glissante de windowSec secondes. */
+  if (pts.length === 0) return [];
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const t = pts[i].x;
+    let sum = 0, n = 0;
+    for (let j = i; j >= 0 && t - pts[j].x <= windowSec * 1000; j--) {
+      sum += pts[j].y; n++;
+    }
+    out.push({ x: t, y: sum / n });
+  }
+  return out;
+}
+
+async function _loadPhHistory(consigne) {
+  try {
+    const r = await fetch('/api/history/ph');
+    const data = await r.json();
+    if (!_phChart) _initPhChart(consigne);
+    const raw = (data.points || []).map(([ts, ph]) => ({ x: ts * 1000, y: ph }));
+    _phChart.data.datasets[0].data = _smoothPoints(raw);
+    _phChart.update('none');
+    $('ph-chart-wrap').style.display = 'block';
+    $('card-ph').classList.add('card-ph-wide');
+  } catch(e) { console.warn('pH history:', e); }
+}
+
+function _appendPhPoint(tsIso, ph) {
+  if (!_phChart) return;
+  const epoch = new Date(tsIso).getTime();
+  const cutoff = epoch - 48 * 3600 * 1000;
+  const ds = _phChart.data.datasets[0].data;
+  ds.push({ x: epoch, y: ph });
+  // Prune points older than 48 h
+  while (ds.length && ds[0].x < cutoff) ds.shift();
+  _phChart.update('none');
+}
+
+/* ── Capabilities ─────────────────────────────────────────────── */
+let _capsApplied = false;
+
+function applyCaps(caps) {
+  if (!caps || !caps.have_data) return;
+  // Temperature
+  const cardTemp = $('card-temp');
+  if (caps.has_temp) cardTemp.classList.remove('cap-hidden');
+  else               cardTemp.classList.add('cap-hidden');
+  // Sel (salinité)
+  const cardSel = $('card-sel');
+  if (caps.has_sel) cardSel.classList.remove('cap-hidden');
+  else              cardSel.classList.add('cap-hidden');
+  // Redox
+  const cardRedox = $('card-redox');
+  if (caps.has_redox) cardRedox.classList.remove('cap-hidden');
+  else                cardRedox.classList.add('cap-hidden');
+  // Load pH history once we have BLE data
+  if (!_phChartLoaded) {
+    _phChartLoaded = true;
+    _loadPhHistory(_lastPhConsigne);
+  }
+}
+
+let _lastPhConsigne = null;
+
 /* ── State → DOM ──────────────────────────────────────────────── */
 function applyState(s) {
   const conn = s.connection || {};
-  const pool = s.pool || {};
+  const pool = s.pool       || {};
+  const caps = s.capabilities || {};
 
   // Header
   const dot = $('conn-dot');
@@ -309,16 +449,29 @@ function applyState(s) {
   // pH
   const ph = pool.ph;
   const pc = pool.ph_consigne;
+  _lastPhConsigne = pc;
   $('val-ph').textContent = fmt(ph);
   $('val-ph').className   = 'card-value ' + phClass(ph, pc);
   $('val-ph-consigne').textContent = fmt(pc);
   $('val-pompe').textContent = pool.pompe_moins_active ? '🔵 ACTIVE' : 'OFF';
   const cardPh = $('card-ph');
   const cls = phClass(ph, pc);
-  cardPh.className = 'card' + (cls === 'ph-bad' ? ' danger' : cls === 'ph-warn' ? ' warn' : ph != null ? ' ok' : '');
+  const baseClass = 'card' + (cardPh.classList.contains('card-ph-wide') ? ' card-ph-wide' : '');
+  cardPh.className = baseClass + (cls === 'ph-bad' ? ' danger' : cls === 'ph-warn' ? ' warn' : ph != null ? ' ok' : '');
+
+  // Append new pH point to live chart
+  if (ph != null && s.ts && _phChart) {
+    if (ph !== _lastPh || s.ts !== _lastPhTs) {
+      _appendPhPoint(s.ts, ph);
+      _lastPh = ph; _lastPhTs = s.ts;
+    }
+  }
 
   // Température
   $('val-temp').textContent = fmt(pool.temp, 1);
+
+  // Sel
+  $('val-sel').textContent = fmt(pool.sel, 1);
 
   // Redox
   $('val-redox').textContent = fmt(pool.redox, 0);
@@ -346,6 +499,8 @@ function applyState(s) {
   if (pool.warning)             items.push(['warn',    `Warning ${pool.warning}`]);
   if (pool.elx_fault_code)      items.push(['warn',    `Err élec. ${pool.elx_fault_code}`]);
   if (pool.regulation_active)   items.push(['ok',      'Régulation active']);
+  if (pool.sleep)               items.push(['ok',      'Mode veille actif']);
+  if (pool.timer_actif)         items.push(['ok',      `Minuterie : ${pool.duree_st} min`]);
   if (items.length === 0)       items.push(['ok',      'RAS']);
 
   $('sys-items').innerHTML = items.map(([c, t]) =>
@@ -355,6 +510,14 @@ function applyState(s) {
   // Alarme banner global
   const hasAlarm = pool.alarme || pool.flow_alarm;
   $('alarm-bar').style.display = hasAlarm ? 'block' : 'none';
+
+  // Apply capabilities (idempotent once have_data = true)
+  if (!_capsApplied && caps.have_data) {
+    _capsApplied = true;
+    applyCaps(caps);
+  } else if (_capsApplied) {
+    applyCaps(caps);
+  }
 }
 
 /* ── SSE ──────────────────────────────────────────────────────── */

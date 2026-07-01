@@ -280,12 +280,14 @@ class ZmqPublisher:
 class ZmqCommandListener:
     """Écoute les commandes PUSH envoyées par l'UI sur un port dédié."""
 
-    def __init__(self, port: int, on_retry, on_cancel, on_db_sync, on_ble_command=None):
+    def __init__(self, port: int, on_retry, on_cancel, on_db_sync, on_ble_command=None,
+                 on_compact_db=None):
         self._port = port
         self._on_retry = on_retry
         self._on_cancel = on_cancel
         self._on_db_sync = on_db_sync
         self._on_ble_command = on_ble_command
+        self._on_compact_db = on_compact_db
         self._running = False
 
     async def run(self) -> None:
@@ -312,6 +314,10 @@ class ZmqCommandListener:
                             if self._on_ble_command is not None:
                                 payload = json.loads(parts[1]) if len(parts) > 1 else {}
                                 self._on_ble_command(payload)
+                        elif topic == Topic.CMD_COMPACT_DB:
+                            if self._on_compact_db is not None:
+                                payload = json.loads(parts[1]) if len(parts) > 1 else {}
+                                self._on_compact_db(payload)
                 except asyncio.TimeoutError:
                     pass
         finally:
@@ -389,6 +395,7 @@ class BLEDaemon:
             on_cancel=lambda: bus.cancel_requested.emit(),
             on_db_sync=lambda p: self._handle_db_sync(p),
             on_ble_command=lambda p: self.acq._on_ble_command(p),
+            on_compact_db=lambda p: self._handle_compact_db(p),
         )
 
         self._stop = False
@@ -481,6 +488,17 @@ class BLEDaemon:
             args=(self.db, self.pub, table),
             daemon=True,
         ).start()
+
+    def _handle_compact_db(self, payload: dict) -> None:
+        max_age_days = int(payload.get("max_age_days", 30))
+        logger.info("compact_db demandé : max_age_days=%d", max_age_days)
+        def _worker():
+            try:
+                result = self.db.compact_db(max_age_days)
+                logger.info("compact_db terminé : %s", result)
+            except Exception as exc:
+                logger.error("compact_db erreur : %s", exc)
+        threading.Thread(target=_worker, daemon=True).start()
 
     # ------------------------------------------------------------------
     # Boucle principale
