@@ -505,6 +505,9 @@ def main() -> None:
         logger.error("Shared key absente. Utilisez --pair pour appaire le module.")
         sys.exit(1)
 
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     daemon = OneDaemon(
         address=address,
         shared_key=shared_key,
@@ -513,9 +516,6 @@ def main() -> None:
         config_path=config_path,
         poll_interval_s=args.poll_interval,
     )
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
 
     def _sig_handler():
         logger.info("Signal reçu — arrêt…")
