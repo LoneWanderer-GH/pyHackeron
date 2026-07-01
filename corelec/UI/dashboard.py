@@ -1191,8 +1191,8 @@ class Dashboard(QWidget):
 
         ph = _h77.get('ph', [])
         ph_consigne = _h83.get('ph_consigne', [])
-        electrolyse_consigne_courante = _h65.get('current_electrolyse_percent', [])
-        electrolyse_consigne_volet_courante = _h65.get('shutter_mode_electrolyse_percent', [])
+        electrolyse = _h65.get('current_electrolyse_percent', [])
+        electrolyse_volet = _h65.get('shutter_mode_electrolyse_percent', [])
         inversion_timer = _h65.get('inversion_timer_min', [])
         inversion_period = _h65.get('inversion_period_min', [])
         boost_remain = _h65.get('boost_remaining_min', [])
