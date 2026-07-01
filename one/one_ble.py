@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import struct
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
@@ -133,21 +132,29 @@ def _aes_encrypt(shared_key: bytes, random_key: bytes) -> bytes:
 
 
 def _encode_datetime(dt: datetime) -> bytes:
-    """Encode une datetime au format GATT Current Time (7 octets).
+    """Encode une datetime au format attendu par le module One (6 octets).
 
-    struct: year(2LE), month(1), day(1), hour(1), minute(1), second(1)
+    Format JS (f5754) : [2-digit-year, month, day, hour, minute, second]
+    — chaque champ sur 1 octet, année sur 2 chiffres (ex: 26 pour 2026).
+    NB : différent du GATT 2A08 standard (uint16 pour l'année).
     """
-    return struct.pack(
-        "<HBBBBBB",
-        dt.year, dt.month, dt.day,
-        dt.hour, dt.minute, dt.second,
-        0,  # fractions256 — ignoré
-    )
+    return bytes([
+        dt.year % 100,  # 2-digit year
+        dt.month,
+        dt.day,
+        dt.hour,
+        dt.minute,
+        dt.second,
+    ])
 
 
 def _day_of_week_byte(dt: datetime) -> bytes:
-    """1 = lundi … 7 = dimanche (GATT Day of Week)."""
-    return bytes([dt.isoweekday()])
+    """Jour de la semaine au format JS : 0=Lundi … 6=Dimanche.
+
+    JS (f5754) : (moment().day() + 6) % 7  où day() est 0=Dim…6=Sam.
+    isoweekday() Python : 1=Lun…7=Dim → (isoweekday() - 1) % 7 → 0=Lun…6=Dim.
+    """
+    return bytes([(dt.isoweekday() - 1) % 7])
 
 
 # ---------------------------------------------------------------------------
@@ -277,47 +284,53 @@ class OneBLEClient:
     # ---------------------------------------------------------------- connexion normale
 
     async def connect_and_auth(self) -> None:
-        """Connexion + authentification + bond BLE + sync RTC.
+        """Connexion + auth AES + bond BLE + sync RTC.
 
-        Séquence :
-          1. Connexion physique.
+        Séquence (calquée sur connect() JS de BleNetworkManager) :
+          1. Connexion BLE initiale.
           2. Auth AES applicative (FBDE0001 → FBDE0003) — sans chiffrement BLE.
-          3. Bond BLE via pair() — établit le lien chiffré requis pour
-             FBDE0104 (status) et le service RTC (Current Time 0x1805).
-             pair() peut provoquer un disconnect/reconnect BlueZ interne.
-             → Si disconnect : reconnecter + re-auth sur lien chiffré.
-             → Sinon : rafraîchir le cache service-discovery de bleak.
-          4. Sync RTC (optionnelle).
+          3. Bond BLE via pair() :
+             - Bond nouvellement créé → pair() déclenche un re-connect BlueZ
+               interne qui vide le cache service-discovery de bleak.
+               Solution : disconnect + reconnect propre + re-auth.
+             - AlreadyExists → bond déjà là, BlueZ a établi le chiffrement
+               dès le connect() initial. Pas de reconnect nécessaire.
+             - Autre erreur → pas de chiffrement, status va échouer plus tard.
+          4. Sync RTC (best-effort, non bloquant).
         """
         logger.info("Connexion à %s", self.address)
         self._client = BleakClient(self.address)
         await self._client.connect()
         logger.info("Connecté")
-
-        # Auth applicative AES (pas besoin de chiffrement pour FBDE0003)
         await self._authenticate()
 
-        # Bond BLE — requis pour les caractéristiques chiffrées
+        # Bond BLE — requis pour FBDE0104 (status) et RTC
+        newly_bonded = False
         try:
             await self._client.pair()
-            logger.info("Bond BLE confirmé")
+            newly_bonded = True
+            logger.info("Bond BLE établi")
         except Exception as e:
-            # Déjà bondé, rejeté par le module ou non supporté → on continue
-            logger.debug("pair(): %s", e)
+            err = str(e)
+            if "AlreadyExists" in err or "Already" in err:
+                logger.debug("Bond BLE déjà existant")
+            else:
+                logger.warning("pair() ignoré (pas de chiffrement BLE): %s", e)
 
-        if not self._client.is_connected:
-            # pair() a provoqué un disconnect BlueZ → reconnecter avec chiffrement
-            logger.info("Re-connexion sur lien chiffré…")
-            await self._client.connect()
-            # Re-auth sur le nouveau lien (session AES réinitialisée)
-            await self._authenticate()
-            logger.info("Re-authentifié")
-        else:
-            # Forcer la re-découverte des services si pair() a vidé le cache bleak
+        if newly_bonded:
+            # pair() établit le bond ET provoque un re-connect BlueZ interne.
+            # Ce re-connect vide le cache service-discovery de bleak.
+            # → Disconnect + reconnect explicite pour un état cohérent.
+            logger.info("Reconnexion propre après bond BLE…")
             try:
-                await self._client.get_services()
+                await self._client.disconnect()
             except Exception:
                 pass
+            self._client = BleakClient(self.address)
+            await self._client.connect()
+            # Re-auth sur le nouveau lien (session AES réinitialisée par le module)
+            await self._authenticate()
+            logger.info("Re-authentifié sur lien chiffré")
 
         await self._sync_rtc()
         logger.info("Auth + RTC OK")
