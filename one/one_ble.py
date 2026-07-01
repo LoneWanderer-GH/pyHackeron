@@ -284,54 +284,23 @@ class OneBLEClient:
     # ---------------------------------------------------------------- connexion normale
 
     async def connect_and_auth(self) -> None:
-        """Connexion + auth AES + bond BLE + sync RTC.
+        """Connexion + auth AES + sync RTC.
 
         Séquence (calquée sur connect() JS de BleNetworkManager) :
-          1. Connexion BLE initiale.
+          1. Connexion BLE.
           2. Auth AES applicative (FBDE0001 → FBDE0003) — sans chiffrement BLE.
-          3. Bond BLE via pair() :
-             - Bond nouvellement créé → pair() déclenche un re-connect BlueZ
-               interne qui vide le cache service-discovery de bleak.
-               Solution : disconnect + reconnect propre + re-auth.
-             - AlreadyExists → bond déjà là, BlueZ a établi le chiffrement
-               dès le connect() initial. Pas de reconnect nécessaire.
-             - Autre erreur → pas de chiffrement, status va échouer plus tard.
-          4. Sync RTC (best-effort, non bloquant).
+          3. Sync RTC (best-effort, non bloquant).
+
+        Note : ce module (RC0 / ON.E firmware 2.x) rejette pair() avec
+        AuthenticationFailed ET se déconnecte immédiatement. Le bonding BLE
+        n'est pas supporté en mode normal. L'accès à FBDE0104 passe uniquement
+        par l'auth AES applicative, comme le fait l'app mobile (aucun pair()).
         """
         logger.info("Connexion à %s", self.address)
         self._client = BleakClient(self.address)
         await self._client.connect()
         logger.info("Connecté")
         await self._authenticate()
-
-        # Bond BLE — requis pour FBDE0104 (status) et RTC
-        newly_bonded = False
-        try:
-            await self._client.pair()
-            newly_bonded = True
-            logger.info("Bond BLE établi")
-        except Exception as e:
-            err = str(e)
-            if "AlreadyExists" in err or "Already" in err:
-                logger.debug("Bond BLE déjà existant")
-            else:
-                logger.warning("pair() ignoré (pas de chiffrement BLE): %s", e)
-
-        if newly_bonded:
-            # pair() établit le bond ET provoque un re-connect BlueZ interne.
-            # Ce re-connect vide le cache service-discovery de bleak.
-            # → Disconnect + reconnect explicite pour un état cohérent.
-            logger.info("Reconnexion propre après bond BLE…")
-            try:
-                await self._client.disconnect()
-            except Exception:
-                pass
-            self._client = BleakClient(self.address)
-            await self._client.connect()
-            # Re-auth sur le nouveau lien (session AES réinitialisée par le module)
-            await self._authenticate()
-            logger.info("Re-authentifié sur lien chiffré")
-
         await self._sync_rtc()
         logger.info("Auth + RTC OK")
 

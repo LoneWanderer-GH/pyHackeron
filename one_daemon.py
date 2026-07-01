@@ -277,12 +277,14 @@ class OneDaemon:
         self._pub_connection("connected", self.address)
         logger.info("Connecté et authentifié (essai %d)", retry)
 
+        # Abonnement aux notifications AVANT la lecture initiale
+        # (ordre calqué sur le JS : prepareComModelForSync retourne
+        # [{type:"subscribe",...}, {type:"read",...}])
+        await self._client.subscribe_status(self._pub_status)
+
         # Lecture initiale
         status = await self._client.read_status()
         self._pub_status(status)
-
-        # Abonnement aux notifications
-        await self._client.subscribe_status(self._pub_status)
 
         # Maintien de la session — poll périodique comme filet de sécurité
         while not self._stop and self._client.is_connected:
