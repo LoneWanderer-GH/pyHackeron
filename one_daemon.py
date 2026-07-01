@@ -277,16 +277,20 @@ class OneDaemon:
         self._pub_connection("connected", self.address)
         logger.info("Connecté et authentifié (essai %d)", retry)
 
-        # Abonnement aux notifications AVANT la lecture initiale
-        # (ordre calqué sur le JS : prepareComModelForSync retourne
-        # [{type:"subscribe",...}, {type:"read",...}])
+        # Abonnement aux notifications STATUS (subscribe CCCD ne requiert pas d'auth)
         await self._client.subscribe_status(self._pub_status)
+        logger.info("Subscribe STATUS OK — notifications actives")
 
-        # Lecture initiale
-        status = await self._client.read_status()
-        self._pub_status(status)
+        # Lecture initiale best-effort : peut échouer avec NotAuthorized si l'auth
+        # AES applicative n'est pas acceptée. Dans ce cas on attend les notifications.
+        try:
+            status = await self._client.read_status()
+            self._pub_status(status)
+        except Exception as e:
+            logger.warning("Lecture initiale ignorée (%s) — état attendu par notification", e)
 
-        # Maintien de la session — poll périodique comme filet de sécurité
+        # Boucle de maintien : les notifications alimentent _pub_status via callback.
+        # Pas besoin de poll read_status() — on détecte la déconnexion via is_connected.
         while not self._stop and self._client.is_connected:
             self._retry_event.clear()
             try:
@@ -295,14 +299,9 @@ class OneDaemon:
                 logger.info("Reconnexion forcée par commande")
                 break
             except asyncio.TimeoutError:
-                # Poll périodique
-                if self._client.is_connected:
-                    try:
-                        status = await self._client.read_status()
-                        self._pub_status(status)
-                    except Exception as e:
-                        logger.warning("Poll status échoué: %s", e)
-                        break
+                if not self._client.is_connected:
+                    break
+                # Connexion toujours active — les notifications continuent
 
     async def _acquisition_loop(self) -> None:
         retry = 0
