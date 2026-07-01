@@ -318,6 +318,7 @@ class ZmqListener(threading.Thread):
             except Exception as _cap_exc:
                 logger.debug("capabilities update skipped: %s", _cap_exc)
 
+        elif isinstance(decoded, Decoded83):
             if decoded.ph_consigne is not None:
                 updates["ph_consigne"] = round(decoded.ph_consigne, 2)
             if decoded.err_max is not None:
