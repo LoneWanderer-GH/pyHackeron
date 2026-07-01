@@ -216,26 +216,30 @@ class OneBLEClient:
 
     @classmethod
     async def pair(cls, address: str) -> tuple["OneBLEClient", OnePairingResult]:
-        """Appaire un module One vierge (ou réinitalisé).
+        """Appaire un module One vierge (ou réinitialisé).
 
-        Pré-requis : le bouton d'appairage du module doit être pressé.
+        Pré-requis : le bouton d'appairage du module doit être pressé
+        (module en mode association, advertising FBDE0100).
 
-        Retourne le client authentifié + les données d'appairage
-        (notamment shared_key à persister).
+        Séquence calquée sur le JS (f5747 identificationProcess,
+        f5731 associationProcess, f5738 authorisationProcess) :
+          1. Connexion physique
+          2. Identification (modèle, série, firmware)
+          3. Lecture shared_key depuis FBDE0002 (octets inversés)
+          4. Auth AES applicative → écriture FBDE0003
+          5. BLE bonding (crée le lien chiffré pour les reconnexions futures)
+          6. Sync RTC (optionnelle)
+
+        Retourne (client_authentifié, OnePairingResult).
+        Persister result.shared_key.hex() dans la config pour les reconnexions.
         """
         logger.info("Démarrage appairage avec %s", address)
         client = cls.__new__(cls)
-        client.address = address
-        client._client = BleakClient(address)
+        client.address    = address
+        client.shared_key = b""
+        client._client    = BleakClient(address)
         await client._client.connect()
         logger.info("Connecté (appairage)")
-
-        # Bonding BLE — nécessaire pour les reconnexions chiffrées ultérieures
-        try:
-            await client._client.pair()
-            logger.debug("BLE bonding OK (appairage)")
-        except Exception as e:
-            logger.debug("BLE pair() ignoré (appairage): %s", e)
 
         # 1. Identification
         model    = (await client._client.read_gatt_char(CHR_MODEL_UUID)).decode().strip("\x00")
@@ -243,16 +247,22 @@ class OneBLEClient:
         firmware = (await client._client.read_gatt_char(CHR_FIRMWARE_UUID)).decode().strip("\x00")
         logger.info("Modèle=%s  Série=%s  FW=%s", model, serial, firmware)
 
-        # 2. Lecture shared_key (inversé, 16 octets)
-        raw_shared = await client._client.read_gatt_char(CHR_SHARED_KEY_UUID)
-        shared_key = bytes(reversed(raw_shared[:16]))
-        logger.info("Shared key: %s", shared_key.hex())
-        client.shared_key = shared_key
+        # 2. Lecture shared_key (FBDE0002) — octets inversés, format JS f5731
+        raw_shared        = await client._client.read_gatt_char(CHR_SHARED_KEY_UUID)
+        client.shared_key = bytes(reversed(raw_shared))
+        logger.info("Shared key: %s", client.shared_key.hex())
 
-        # 3. Authentification
+        # 3. Auth AES applicative (ne requiert pas de chiffrement BLE)
         await client._authenticate()
 
-        # 4. Synchronisation RTC
+        # 4. BLE bonding — établit le lien chiffré, nécessaire pour FBDE0104
+        try:
+            await client._client.pair()
+            logger.debug("BLE bonding OK (appairage)")
+        except Exception as e:
+            logger.debug("BLE pair() ignoré (appairage): %s", e)
+
+        # 5. Sync RTC (requiert le lien chiffré, non bloquant si refus)
         await client._sync_rtc()
 
         result = OnePairingResult(
@@ -260,27 +270,39 @@ class OneBLEClient:
             model=model,
             serial=serial,
             firmware=firmware,
-            shared_key=shared_key,
+            shared_key=client.shared_key,
         )
         return client, result
 
     # ---------------------------------------------------------------- connexion normale
 
     async def connect_and_auth(self) -> None:
-        """Connexion + authentification + sync RTC (module déjà appairé)."""
+        """Connexion + authentification + sync RTC (module déjà appairé).
+
+        Séquence critique (calquée sur le comportement de l'app mobile) :
+          1. Connexion physique BLE
+          2. Auth applicative AES (FBDE0001 → FBDE0003) — ne requiert PAS de chiffrement BLE
+          3. BLE pair/bond  — le mobile OS le déclenche automatiquement après l'auth ;
+                             on doit l'appeler explicitement sous BlueZ
+          4. Sync RTC       — requiert le chiffrement BLE (d'où l'ordre après pair)
+        """
         logger.info("Connexion à %s", self.address)
         self._client = BleakClient(self.address)
         await self._client.connect()
         logger.info("Connecté")
-        # Chiffrement BLE (bonding BlueZ) requis pour accéder aux caractéristiques
-        # protégées (ex: CHR_STATUS). L'app mobile le fait via l'OS de façon transparente.
+
+        # Étape 2 : auth applicative AES (ne nécessite pas de lien chiffré)
+        await self._authenticate()
+
+        # Étape 3 : chiffrement BLE — le device envoie un Security Request après l'auth ;
+        # sur mobile l'OS le gère automatiquement, ici on l'appelle explicitement.
         try:
             await self._client.pair()
             logger.debug("BLE bonding OK")
         except Exception as e:
-            # Ignoré si déjà bondé ou si le backend ne supporte pas pair()
             logger.debug("BLE pair() ignoré: %s", e)
-        await self._authenticate()
+
+        # Étape 4 : sync RTC (requiert le lien chiffré)
         await self._sync_rtc()
         logger.info("Auth + RTC OK")
 
