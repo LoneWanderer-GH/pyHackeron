@@ -137,6 +137,9 @@ class Frame77(FrameBase):
             #                  (observé : 0x19→0x11 à la désactivation)
             #   bit 4 (0x10) : flow_switch_m          — pressostat (|= avec Frame65 bit2)
             #   bit 5 (0x20) : pompe_chlore           — pompe chlore présente
+            #   bit 6 (0x40) : capteur_redox          — électrode Redox/ORP présente et configurée
+            #                  (HYPOTHÈSE RE : bit non documenté dans akeron.js, déduit du comportement
+            #                   observé : 0 = Redox absent → commandes consigne ignorées par le ctrl.)
             #   bit 7 (0x80) : pompes_forcees — CONFIRMÉ : 17→145 lors du forçage manuel
             ('sensor_config_flags', c_uint8),  # byte 13
             # byte 14 : constante fixe par type de trame (jamais un CRC)
@@ -175,6 +178,7 @@ class Frame77(FrameBase):
             'config_capteur_sel_actif': bool(be.sensor_config_flags & (1 << 3)),
             'flow_switch_m':        bool(be.sensor_config_flags & (1 << 4)),
             'pompe_chlore':         bool(be.sensor_config_flags & (1 << 5)),
+            'capteur_redox':        bool(be.sensor_config_flags & (1 << 6)),
             'pompes_forcees':       bool(be.sensor_config_flags & (1 << 7)),
             # Noms des bits connus pour l'UI Reverse Engineering
             '_bit_names': {
@@ -193,6 +197,7 @@ class Frame77(FrameBase):
                     3: 'capteur_sel',
                     4: 'flow_switch_m',
                     5: 'pompe_chlore',
+                    6: 'capteur_redox',
                     7: 'pompes_forcees',
                 },
             },

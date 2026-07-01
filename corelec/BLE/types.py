@@ -44,6 +44,7 @@ class Decoded77(DecodedBase):
     config_capteur_sel_actif: bool
     flow_switch_m: bool
     pompe_chlore: bool
+    capteur_redox: bool      # byte 13 bit 6 — électrode Redox présente (hypothèse RE)
     pompes_forcees: bool
 
 

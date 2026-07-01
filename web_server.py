@@ -307,14 +307,11 @@ class ZmqListener(threading.Thread):
                 caps["have_data"]       = True
                 caps["has_temp"]        = decoded.capteur_temp
                 caps["has_sel"]         = decoded.config_capteur_sel_actif
+                caps["has_redox"]       = decoded.capteur_redox   # bit 6 byte13 : électrode Redox présente
                 caps["has_pompe_plus"]  = decoded.pompe_plus_presence
                 caps["has_pompe_moins"] = decoded.pompe_moins_presence
                 caps["has_pompe_chlore"] = decoded.pompe_chlore
-            # Redox détecté si une consigne réaliste (> 100 mV) a déjà été reçue
-                if _state["pool"].get("redox_consigne", 0) > 100:
-                    caps["has_redox"] = True
 
-        elif isinstance(decoded, Decoded83):
             if decoded.ph_consigne is not None:
                 updates["ph_consigne"] = round(decoded.ph_consigne, 2)
             if decoded.err_max is not None:
@@ -325,11 +322,8 @@ class ZmqListener(threading.Thread):
         elif isinstance(decoded, Decoded69):
             if decoded.redox_consigne is not None:
                 updates["redox_consigne"] = decoded.redox_consigne
-                # Redox actif seulement si la consigne est une valeur réaliste (> 100 mV).
-                # decoded.redox_consigne est un c_uint16 (jamais None) — 0 = non configuré.
-                if decoded.redox_consigne > 100:
-                    with _state_lock:
-                        _state["capabilities"]["has_redox"] = True
+                # has_redox est désormais piloté par decoded.capteur_redox (Frame77 byte13 bit6).
+                # Le bloc Decoded69 ne touche plus aux capabilities.
 
         elif isinstance(decoded, Decoded65):
             updates.update({

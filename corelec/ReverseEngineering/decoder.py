@@ -37,6 +37,7 @@ class Decoder:
             config_capteur_sel_actif=d['config_capteur_sel_actif'],
             flow_switch_m=d['flow_switch_m'],
             pompe_chlore=d['pompe_chlore'],
+            capteur_redox=d['capteur_redox'],
             pompes_forcees=d['pompes_forcees'],
         )
 
